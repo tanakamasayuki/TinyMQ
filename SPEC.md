@@ -146,13 +146,27 @@ Sessions are identified by the client's address and port (as in MQTT-SN 1.2). If
 
 ### 4.5 MQTT-SN 1.2 — client (`TinyMQClientSn`)
 
-For small chips, so **features are chosen in steps at build time**.
+For small chips, so **features are chosen in steps at build time** (`TINYMQ_SN_CLIENT_LEVEL`).
 
 | Level | Contents |
 |---|---|
-| Minimal | QoS −1 PUBLISH only (predefined IDs and short names). No connection state |
-| Standard (default) | CONNECT, REGISTER, PUBLISH QoS 0 / 1, SUBSCRIBE, PINGREQ, retransmission |
-| Full | the above + QoS 2, will, sleep, gateway discovery |
+| 0 | QoS −1 PUBLISH only (predefined IDs and short names). No connection state |
+| 1 | CONNECT, REGISTER, PUBLISH QoS 0 / 1, SUBSCRIBE, PINGREQ, retransmission |
+| 2 (default) | the above + QoS 2, will, sleep, gateway discovery |
+
+The default is 2 because the Arduino IDE makes `-D` hard to pass, and the linker drops the functions a sketch never calls at any level; a lower level shrinks what `update()` pulls in and the buffers.
+
+- Procedures (connect, register, subscribe, QoS 1 / 2 publish) wait for the answer (blocking). Without one they resend every Tretry (PUBLISH with DUP) and give up after Nretry. Messages in flight are not copied and kept, so the RAM is the buffers and the topic table. Messages arriving meanwhile go to the callback.
+- A hook called while waiting (`onIdle()`) keeps other work (such as a broker on the same board) running.
+- The topic id table survives reconnecting: a gateway resuming a session after sleep keeps its registrations. A stale entry is overwritten by the gateway's REGISTER, or registered again after a PUBACK "invalid topic id".
+
+CH32V307 (difference to a sketch sending UDP over Ethernet once a second, `TINYMQ_SN_CLIENT_BUFFER` 256, 2026-10-28):
+
+| Level | Flash | RAM (static) |
+|---|---|---|
+| 0 | +1.0 KB | +0.4 KB |
+| 1 | +5.1 KB | +1.2 KB |
+| 2 | +6.0 KB | +1.2 KB |
 
 ### 4.6 Local client and bridge
 
@@ -195,7 +209,7 @@ Two levels: build-time macros (override with `-D`, in `src/tinymq/mq_config.h`) 
 | `TINYMQ_ENABLE_PERSISTENT_SESSION` | persistent sessions |
 | `TINYMQ_ENABLE_SHARED_SUB` / `TINYMQ_ENABLE_TOPIC_ALIAS` / `TINYMQ_ENABLE_SYS` | individual 5.0 features, `$SYS` |
 | `TINYMQ_ENABLE_SN` | MQTT-SN gateway |
-| `TINYMQ_SN_CLIENT_LEVEL` | MQTT-SN client level (§4.5) |
+| `TINYMQ_SN_CLIENT_LEVEL` | MQTT-SN client level (§4.5), default 2 |
 | `TINYMQ_ENABLE_BRIDGE` | bridge |
 
 ## 6. Testing

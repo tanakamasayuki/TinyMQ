@@ -102,3 +102,28 @@
 #ifndef TINYMQ_SN_POOL_BYTES
 #define TINYMQ_SN_POOL_BYTES 4096
 #endif
+
+// ---- MQTT-SN client (TinyMQClientSn)
+
+// 0: PUBLISH with QoS -1 only; 1: connect, register, publish QoS 0 / 1,
+// subscribe, keep alive; 2: also QoS 2, will, sleep, gateway search.
+// Functions a sketch never calls are dropped by the linker at any level;
+// lower levels make update() and the buffers smaller.
+#ifndef TINYMQ_SN_CLIENT_LEVEL
+#define TINYMQ_SN_CLIENT_LEVEL 2
+#endif
+
+// Largest datagram sent or received
+#ifndef TINYMQ_SN_CLIENT_BUFFER
+#define TINYMQ_SN_CLIENT_BUFFER 256
+#endif
+
+// Topic ids remembered (own registrations, SUBACK, the gateway's REGISTER)
+#ifndef TINYMQ_SN_CLIENT_MAX_TOPICS
+#define TINYMQ_SN_CLIENT_MAX_TOPICS 8
+#endif
+
+// Longest topic name remembered
+#ifndef TINYMQ_SN_CLIENT_TOPIC_LEN
+#define TINYMQ_SN_CLIENT_TOPIC_LEN 32
+#endif

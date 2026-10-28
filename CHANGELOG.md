@@ -11,3 +11,5 @@
 - (JA) TinyMQBroker: MQTT 3.1.1 / 3.1 のブローカーと、任意の Arduino サーバーで使う TinyMQTcpListener(QoS 0 / 1 / 2、QoS 2 の配送は選択可、retain、will、永続セッション、セッションの乗っ取り、認証・認可のコールバック、ローカルクライアント)。
 - (EN) MQTT-SN 1.2 gateway for the broker (TinyMQSnListener over any Arduino UDP): registration, predefined and short topics, QoS -1 to 2, wills, sleeping clients, resending over UDP.
 - (JA) ブローカーの MQTT-SN 1.2 ゲートウェイ(任意の Arduino UDP の上で動く TinyMQSnListener): トピックの登録、事前定義トピックと短いトピック名、QoS -1 〜 2、will、スリープするクライアント、UDP での再送。
+- (EN) TinyMQClientSn: MQTT-SN 1.2 client over any Arduino UDP, with build-time levels (QoS -1 only / standard / full with QoS 2, will, sleep and gateway search).
+- (JA) TinyMQClientSn: 任意の Arduino UDP の上の MQTT-SN 1.2 クライアント。ビルド時に段階を選べる(QoS -1 のみ / 標準 / QoS 2・will・スリープ・ゲートウェイ探索まで)。

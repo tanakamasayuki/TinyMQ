@@ -146,13 +146,27 @@ QoS 2 の重さは向きで違う。
 
 ### 4.5 MQTT-SN 1.2 — クライアント(`TinyMQClientSn`)
 
-プアなチップ向けなので、**機能をビルド時に段階的に選べる**ようにする。
+プアなチップ向けなので、**機能をビルド時に段階的に選べる**ようにする(`TINYMQ_SN_CLIENT_LEVEL`)。
 
 | 段階 | 含むもの |
 |---|---|
-| 最小 | QoS −1 の PUBLISH(事前定義 ID・短いトピック名)のみ。接続の状態を持たない |
-| 標準(既定) | CONNECT、REGISTER、PUBLISH QoS 0 / 1、SUBSCRIBE、PINGREQ、再送 |
-| 全部 | 上記 + QoS 2、will、スリープ、ゲートウェイ探索 |
+| 0 | QoS −1 の PUBLISH(事前定義 ID・短いトピック名)のみ。接続の状態を持たない |
+| 1 | CONNECT、REGISTER、PUBLISH QoS 0 / 1、SUBSCRIBE、PINGREQ、再送 |
+| 2(既定) | 上記 + QoS 2、will、スリープ、ゲートウェイ探索 |
+
+既定を 2 にしたのは、Arduino IDE からは `-D` を渡しにくいことと、スケッチが呼ばない関数はどの段階でもリンカが落とすため。段階を下げると `update()` が引き込むコードとバッファが減る。
+
+- 手順(接続、登録、購読、QoS 1 / 2 の送信)は応答が来るまで待つ(ブロッキング)。応答がなければ Tretry ごとに再送し(PUBLISH は DUP 付き)、Nretry 回で諦める。送信中のメッセージをコピーして持たないので、RAM はバッファとトピックの表だけで済む。待っている間に届いたメッセージはコールバックで渡す
+- 待っている間に呼ぶフック(`onIdle()`)で、ほかの処理(同じボードのブローカーなど)を止めずに済む
+- トピック ID の表は接続し直しても消さない。スリープから戻ったゲートウェイは登録を残しているため。古い対応は、ゲートウェイの REGISTER で上書きされるか、PUBACK の「不正なトピック ID」を受けて登録し直す
+
+CH32V307(Ethernet で 1 秒ごとに UDP を送るスケッチとの差、`TINYMQ_SN_CLIENT_BUFFER` 256、2026-10-28):
+
+| 段階 | Flash | RAM(静的) |
+|---|---|---|
+| 0 | +1.0 KB | +0.4 KB |
+| 1 | +5.1 KB | +1.2 KB |
+| 2 | +6.0 KB | +1.2 KB |
 
 ### 4.6 ローカルクライアントとブリッジ
 
@@ -195,7 +209,7 @@ QoS 2 の重さは向きで違う。
 | `TINYMQ_ENABLE_PERSISTENT_SESSION` | 永続セッション |
 | `TINYMQ_ENABLE_SHARED_SUB` / `TINYMQ_ENABLE_TOPIC_ALIAS` / `TINYMQ_ENABLE_SYS` | 5.0 の個別機能、`$SYS` |
 | `TINYMQ_ENABLE_SN` | MQTT-SN ゲートウェイ |
-| `TINYMQ_SN_CLIENT_LEVEL` | MQTT-SN クライアントの段階(§4.5) |
+| `TINYMQ_SN_CLIENT_LEVEL` | MQTT-SN クライアントの段階(§4.5)。既定 2 |
 | `TINYMQ_ENABLE_BRIDGE` | ブリッジ |
 
 ## 6. テスト方針

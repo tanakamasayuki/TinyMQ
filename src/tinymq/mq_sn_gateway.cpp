@@ -135,13 +135,16 @@ void SnGateway::input(const Endpoint &from, const uint8_t *data, size_t len, uin
         c->retries = 0;
         c->lastProgress = now;
         if (a.rc == sn::kInvalidTopicId) {
-            // the client lost the registration: the message is dropped and
-            // the topic is registered again next time
+            // the client does not know the topic id: register it again and
+            // send the message again
             int r = findRegistration(c->index, a.topicId);
             if (r >= 0) {
                 pool_.free(regs_[r].name);
                 regs_[r].client = 0xFF;
             }
+            if (c->state == kActive || c->state == kAwake)
+                broker_->resendConn(c->conn);
+            break;
         }
         feedAck(*c, PacketType::Puback, a.msgId);
         break;

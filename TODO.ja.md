@@ -28,7 +28,8 @@ SPEC §7 の順に進める。
 - [ ] Phase 4: MQTT-SN
   - [x] コーデック(`tinymq::sn`)と単体テスト
   - [x] ゲートウェイ(`tinymq::SnGateway`、`TinyMQSnListener`)。MQTT-SN のクライアント 1 つにブローカーの接続を 1 本割り当て、パケットを相互に変換する方式。Python の MQTT-SN ピアで試験
-  - [ ] `TinyMQClientSn`(段階を選べるクライアント)
+  - [x] `TinyMQClientSn`(段階を選べるクライアント、手順はブロッキング)。自前のゲートウェイと偽ゲートウェイで試験。CH32V307 で段階ごとのフットプリントを計測(SPEC §4.5)
+  - [ ] ほかの MQTT-SN 実装(Eclipse Paho MQTT-SN Gateway など)との相互接続
   - [ ] Forwarder Encapsulation、送信元アドレスの許可リスト
 - [ ] Phase 5: 実機(ESP32 / ESP32-S3 / Pico W / CH32V307)、計測、TinyWG との組み合わせ
 - [ ] Phase 6: MQTT 5.0
