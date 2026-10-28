@@ -2,7 +2,7 @@
 // interop tests with paho-mqtt and raw sockets (test_broker_interop.py).
 //
 // Commands (one per line):
-//   LISTEN <tcp port> [<MQTT-SN udp port>]   SNRETRY <ms> <count>   MAXQOS <0-2>   EXPIRY <s>   CTIMEOUT <ms>
+//   LISTEN <tcp port> [<MQTT-SN udp port>]   (boards also listen on lwIP's raw API, port 1885)   SNRETRY <ms> <count>   MAXQOS <0-2>   EXPIRY <s>   CTIMEOUT <ms>
 //   AUTH <0|1>  (user alice / password secret)          ACL <0|1>  (deny "secret/...")
 //   LSUB <qos> <filter>   LUNSUB <filter>   LPUB <qos> <retain> <topic> <payload>
 //   REBOOT (save the state, forget everything, load it)   STATS
@@ -18,6 +18,10 @@ WiFiServer server;
 TinyMQTcpListener<WiFiServer> listener(server);
 WiFiUDP udp;
 TinyMQSnListener sn(udp);
+#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_WIFI)
+// the same broker on lwIP's raw API too (board only; the host core has no lwIP)
+TinyMQLwipListener lwipListener(1885);
+#endif
 TinyMQBroker broker;
 
 static char g_line[512];
@@ -110,7 +114,14 @@ static void command(char *line)
         if (snPort)
             udp.begin(snPort);
         Serial.print("LISTENING ");
-        Serial.println(port);
+        Serial.print(port);
+#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_WIFI)
+        if (lwipListener.begin()) {
+            broker.addListener(lwipListener);
+            Serial.print(" lwip=1885");
+        }
+#endif
+        Serial.println();
     } else if (!strcmp(cmd, "SNRETRY")) {
         uint32_t ms = (uint32_t)atol(nextWord(&s));
         sn.setRetry(ms, (uint8_t)atoi(nextWord(&s)));

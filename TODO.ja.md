@@ -39,7 +39,7 @@ SPEC §7 の順に進める。
   - [ ] ESP32 の `sn_client_interop` の `resend` が 1 回だけ失敗した(偽ゲートウェイが最初に REGISTER ではなく PUBLISH を受けた)。再実行では通り、ESP32-S3 でも通る。原因は未特定。再発したら受信内容がアサーションに出る
   - [x] ESP32 / ESP32-S3 で 5.0 を含む 3 つの相互接続試験が通過(2026-10-28)
   - [ ] ESP32-S3 が試験中に 1 回だけ電源投入リセットでダウンロードモードに入った(`rst:0x1 (POWERON), boot:0x23`)。再実行では起きていない。USB の電源か、ほかのスイートとの取り合いかは未確認
-  - [ ] CH32V307(Ethernet、Network ライブラリ)。ブローカーの軽い構成と MQTT-SN クライアント。ベンチのロックを取って使う
+  - [ ] CH32V307(Ethernet。小さい設定のブローカーと lwIP の受け口でビルドは通る: Flash 59 KB / RAM 47 KB、うち lwIP 約 37 KB、Network ライブラリ)。ブローカーの軽い構成と MQTT-SN クライアント。ベンチのロックを取って使う
   - [ ] Pico W(つながっていない)
   - [ ] 計測(ブローカーの接続数ごとの RAM、配送の速さと遅延)、TinyWG との組み合わせ
 - [ ] Phase 6: MQTT 5.0
@@ -52,7 +52,7 @@ SPEC §7 の順に進める。
 - [ ] Phase 8: lwIP の受け口、永続化のフック
   - [x] 永続化: `saveState()` / `loadState()`(保存先は `StateSink` / `StateSource` でスケッチが選ぶ)、retain の変化のコールバック、`end()`
   - [ ] LittleFS に保存するサンプル
-  - [ ] lwIP の受け口
+  - [x] lwIP の受け口(`TinyMQLwipListener`)。コールバックは受信を溜めるだけ、ブローカーは `loop()` から lwIP のロックの下で動く。`writable()` は送信バッファの空き。ESP32 / ESP32-S3 の実機で TCP と 5.0 のシナリオが通過、Pico W と CH32V307 はビルドのみ
 - [ ] 既定値と設定のプリセットを実測で決める
 
 ## 未決定(TBD)

@@ -22,6 +22,7 @@
 #include "TinyMQClient.h"
 #include "TinyMQBroker.h"
 #include "TinyMQTcpListener.h"
+#include "TinyMQLwipListener.h"
 #include "TinyMQSnListener.h"
 #include "TinyMQClientSn.h"
 #include "TinyMQBridge.h"

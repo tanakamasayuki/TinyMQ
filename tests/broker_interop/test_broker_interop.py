@@ -522,6 +522,27 @@ def scenario_clean_state(d, port):
     assert (s["sessions"], s["subs"], s["retained"], s["pool"], s["sn"], s["snregs"]) == (0, 0, 0, 0, 0, 0), s
 
 
+TCP_SCENARIOS = (
+    ("pubsub", scenario_pubsub),
+    ("max_qos", scenario_max_qos),
+    ("wildcards", scenario_wildcards),
+    ("retain", scenario_retain),
+    ("will", scenario_will),
+    ("persistent", scenario_persistent),
+    ("takeover", scenario_takeover),
+    ("resend", scenario_resend),
+    ("qos2_in", scenario_qos2_in),
+    ("auth", scenario_auth),
+    ("acl", scenario_acl),
+    ("local", scenario_local),
+    ("unsubscribe", scenario_unsubscribe),
+    ("protocol_errors", scenario_protocol_errors),
+    ("mqtt31", scenario_mqtt31),
+    ("many_clients", scenario_many_clients),
+    ("payload_sizes", scenario_payload_sizes),
+)
+
+
 def test_broker_interop(dut, record_property):
     d = Dut(dut)
     ip = d.ready()
@@ -531,7 +552,7 @@ def test_broker_interop(dut, record_property):
         port, sn_port = 1883, 1884  # a board: the peers connect to its address
         target.HOST = ip
     d.send(f"LISTEN {port} {sn_port}")
-    d.expect(rf"^LISTENING {port}")
+    lwip = d.expect(rf"^LISTENING {port}( lwip=(\d+))?").group(2)
     results = {}
 
     def run(name, fn):
@@ -543,29 +564,13 @@ def test_broker_interop(dut, record_property):
         print(f"SCENARIO {results[name].split()[0]} {name} {results[name][4:]}")
         record_property(f"scenario_{name}", results[name])
 
-    for name, fn in (
-        ("pubsub", scenario_pubsub),
-        ("max_qos", scenario_max_qos),
-        ("wildcards", scenario_wildcards),
-        ("retain", scenario_retain),
-        ("will", scenario_will),
-        ("persistent", scenario_persistent),
-        ("takeover", scenario_takeover),
-        ("resend", scenario_resend),
-        ("qos2_in", scenario_qos2_in),
-        ("auth", scenario_auth),
-        ("acl", scenario_acl),
-        ("local", scenario_local),
-        ("unsubscribe", scenario_unsubscribe),
-        ("protocol_errors", scenario_protocol_errors),
-        ("mqtt31", scenario_mqtt31),
-        ("many_clients", scenario_many_clients),
-        ("payload_sizes", scenario_payload_sizes),
-    ):
-        run(name, fn)
-    for name, fn in V5_SCENARIOS:
+    for name, fn in TCP_SCENARIOS + V5_SCENARIOS:
         run(name, fn)
     run("persistence", scenario_persistence)
+    if lwip:
+        # the TCP scenarios again, through TinyMQLwipListener
+        for name, fn in TCP_SCENARIOS + V5_SCENARIOS:
+            run(f"lwip_{name}", lambda d, port, fn=fn: fn(d, int(lwip)))
     for name, fn in SN_SCENARIOS:
         run(name, lambda d, port, fn=fn: fn(d, port, sn_port))
     run("clean_state", scenario_clean_state)
