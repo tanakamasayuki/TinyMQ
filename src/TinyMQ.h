@@ -9,3 +9,7 @@
 
 #include "tinymq_version.h"
 #include "tinymq/mq_config.h"
+#include "tinymq/mq_types.h"
+#include "tinymq/mq_codec.h"
+#include "tinymq/mq_topic.h"
+#include "tinymq/mq_pool.h"

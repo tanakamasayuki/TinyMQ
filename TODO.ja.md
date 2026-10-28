@@ -4,7 +4,7 @@
 
 ## 現状
 
-- 方針を決めた段階で、コードはまだない
+- Phase 0(雛形)と Phase 1(core: コーデック、トピック、メッセージプール)まで済み。host の単体テストが通り、ESP32 / Pico W / CH32V307 でビルドが通る
 - 決まったこと(詳細は SPEC)
   - クライアントとブローカーを 1 つのライブラリに入れ、使う側だけを選ぶ
   - TCP は MQTT 3.1.1 / 5.0。ブローカーはなるべく仕様の全体を実装し、設定で軽くできるようにする
@@ -18,8 +18,8 @@
 
 SPEC §7 の順に進める。
 
-- [ ] Phase 0: 雛形(`library.properties`、`src/`、`tests/`、`tools/bump_version.py`、`.github/workflows/release.yml` を TinyWG から)
-- [ ] Phase 1: core(3.1.1 のコーデック、トピック照合、購読表、メッセージプール)と host の単体テスト
+- [x] Phase 0: 雛形(`library.properties`、`src/`、`tests/`、`tools/bump_version.py`、`.github/workflows/release.yml` をリリースツールキットから)
+- [x] Phase 1: core(3.1.1 / 5.0 のコーデック、トピック照合、メッセージプール)と host の単体テスト。5.0 のプロパティは生のまま保持するところまで(解釈は Phase 6)。購読表はセッションと一緒に Phase 3 で作る
 - [ ] Phase 2: `TinyMQClient`(3.1.1)と mosquitto との相互接続
 - [ ] Phase 3: `TinyMQBroker`(3.1.1)+ `TinyMQTcpListener`、ローカルクライアント、paho-mqtt と paho.mqtt.testing
 - [ ] Phase 4: MQTT-SN(`TinyMQSnListener`、`TinyMQClientSn`、Python の MQTT-SN ピア)
