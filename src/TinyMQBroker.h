@@ -27,6 +27,7 @@ public:
     // `poolBytes` is used only when TINYMQ_BROKER_POOL_BYTES is 0
     bool begin(size_t poolBytes = 0) { return engine_.begin(poolBytes); }
     bool addListener(TinyMQListener &listener);
+    void end() { engine_.end(); }  // closes every connection and forgets everything
     void update();
 
     void setMaxQos(uint8_t qos) { engine_.setMaxQos(qos); }
@@ -43,6 +44,12 @@ public:
     bool subscribe(const char *filter, uint8_t qos = 0) { return engine_.subscribe(filter, qos); }
     bool unsubscribe(const char *filter) { return engine_.unsubscribe(filter); }
     void onMessage(MessageHandler h, void *context = nullptr) { engine_.onMessage(h, context); }
+
+    // Persistence: retained messages and persistent sessions to and from any
+    // storage (see tinymq::StateSink / StateSource)
+    bool saveState(tinymq::StateSink &sink) { return engine_.saveState(sink); }
+    bool loadState(tinymq::StateSource &source) { return engine_.loadState(source); }
+    void onRetainedChange(tinymq::Broker::RetainedHandler h, void *context = nullptr) { engine_.onRetainedChange(h, context); }
 
     size_t clients() const { return engine_.clients(); }
     size_t sessions() const { return engine_.sessions(); }

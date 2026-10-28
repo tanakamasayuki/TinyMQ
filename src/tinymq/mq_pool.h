@@ -44,6 +44,9 @@ public:
     explicit MessageStore(Pool &pool) : pool_(pool) {}
 
     uint32_t create(Bytes topic, Bytes props, Bytes payload, uint8_t qos, bool retain, uint32_t expiry = 0);
+    // As create(), leaving room for a payload of `payloadLen` bytes to be
+    // filled through `payload`
+    uint32_t createEmpty(Bytes topic, Bytes props, size_t payloadLen, uint8_t qos, bool retain, uint32_t expiry, uint8_t *&payload);
     void addRef(uint32_t h);
     void release(uint32_t h);
 

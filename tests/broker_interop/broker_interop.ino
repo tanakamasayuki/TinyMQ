@@ -5,7 +5,7 @@
 //   LISTEN <tcp port> [<MQTT-SN udp port>]   SNRETRY <ms> <count>   MAXQOS <0-2>   EXPIRY <s>   CTIMEOUT <ms>
 //   AUTH <0|1>  (user alice / password secret)          ACL <0|1>  (deny "secret/...")
 //   LSUB <qos> <filter>   LUNSUB <filter>   LPUB <qos> <retain> <topic> <payload>
-//   STATS
+//   REBOOT (save the state, forget everything, load it)   STATS
 // Settings commands answer OK <command>. Events printed:
 //   LISTENING <port>   CLIENT <id> <1|0>   LOCAL <qos> <retain> <topic> <payload>
 //   STATS clients=<n> sessions=<n> subs=<n> retained=<n> pool=<used>/<capacity> dropped=<n>
@@ -21,6 +21,35 @@ TinyMQSnListener sn(udp);
 TinyMQBroker broker;
 
 static char g_line[512];
+
+// REBOOT: the state goes through RAM, as it would through a file
+struct RamState : tinymq::StateSink, tinymq::StateSource {
+    uint8_t data[8192];
+    size_t len = 0, pos = 0;
+    bool write(const uint8_t *d, size_t n) override
+    {
+        if (n > sizeof(data) - len)
+            return false;
+        memcpy(data + len, d, n);
+        len += n;
+        return true;
+    }
+    bool read(uint8_t *d, size_t n) override
+    {
+        if (n > len - pos)
+            return false;
+        memcpy(d, data + pos, n);
+        pos += n;
+        return true;
+    }
+};
+static RamState g_state;
+static unsigned g_retainedChanges;
+
+static void onRetained(tinymq::Bytes, bool, void *)
+{
+    ++g_retainedChanges;
+}
 static size_t g_lineLen;
 
 static void onLocal(const tinymq::Message &m, void *)
@@ -107,6 +136,16 @@ static void command(char *line)
         char *topic = nextWord(&s);
         bool ok = broker.publish(topic, s, qos, retain);
         Serial.println(ok ? "LPUB ok" : "LPUB fail");
+    } else if (!strcmp(cmd, "REBOOT")) {
+        // save, forget everything (clients are cut off), load
+        g_state.len = g_state.pos = 0;
+        bool saved = broker.saveState(g_state);
+        broker.end();
+        bool loaded = saved && broker.loadState(g_state);
+        Serial.print(loaded ? "REBOOT ok " : "REBOOT fail ");
+        Serial.print((unsigned)g_state.len);
+        Serial.print(' ');
+        Serial.println(g_retainedChanges);
     } else if (!strcmp(cmd, "STATS")) {
         Serial.print("STATS clients=");
         Serial.print((unsigned)broker.clients());
@@ -149,6 +188,7 @@ void setup()
     sn.addPredefinedTopic(2, "pre/two");
     broker.onMessage(onLocal);
     broker.onClient(onClient);
+    broker.onRetainedChange(onRetained);
 }
 
 void loop()

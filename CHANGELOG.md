@@ -15,6 +15,8 @@
 - (JA) TinyMQClientSn: 任意の Arduino UDP の上の MQTT-SN 1.2 クライアント。ビルド時に段階を選べる(QoS -1 のみ / 標準 / QoS 2・will・スリープ・ゲートウェイ探索まで)。
 - (EN) MQTT 5.0 in the broker: properties, session and message expiry, will delay, subscription identifiers and options, shared subscriptions, topic aliases from clients, flow control, reason codes.
 - (EN) MQTT 5.0 in TinyMQClient: CONNECT / CONNACK properties and server limits, publishing with properties, subscription options and identifiers, DISCONNECT with reason codes.
+- (EN) Broker persistence: saveState() / loadState() for retained messages and persistent sessions to any storage, a retained-change callback, end().
+- (JA) ブローカーの永続化: retain と永続セッションを任意の保存先へ書き出す saveState() / loadState()、retain の変化のコールバック、end()。
 - (EN) TinyMQBridge: forwards topics between the broker and an upstream broker (out / in / both, prefixes, QoS), with loop prevention and retained messages taken upstream on every connect.
 - (JA) TinyMQBridge: ブローカーと上流のブローカーの間でトピックを転送(out / in / both、プレフィックス、QoS)。ループ防止と、接続のたびにローカルの retain を上流へ送る。
 - (JA) TinyMQClient の MQTT 5.0 対応: CONNECT / CONNACK のプロパティとサーバーの制限、プロパティ付きの publish、購読オプションと識別子、理由コード付きの DISCONNECT。

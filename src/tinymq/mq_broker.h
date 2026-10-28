@@ -26,6 +26,20 @@ struct ConnectInfo {
     Bytes props;  // 5.0 CONNECT properties (user properties, ...)
 };
 
+// Where saveState() writes and loadState() reads (a file, flash, ...)
+class StateSink {
+public:
+    virtual ~StateSink() {}
+    virtual bool write(const uint8_t *data, size_t len) = 0;
+};
+
+class StateSource {
+public:
+    virtual ~StateSource() {}
+    // Reads exactly `len` bytes; false at the end or on an error
+    virtual bool read(uint8_t *data, size_t len) = 0;
+};
+
 class Broker {
 public:
     // Returns kSuccess to accept, or a reason code to refuse
@@ -37,6 +51,8 @@ public:
     typedef void (*MessageHandler)(const Message &msg, void *context);
     // A client connected (true) or its connection ended (false).
     typedef void (*ClientHandler)(Bytes clientId, bool connected, void *context);
+    // A retained message was stored or deleted (a cue to save the state)
+    typedef void (*RetainedHandler)(Bytes topic, bool deleted, void *context);
 
     static const uint16_t kNone = 0xFFFF;
 
@@ -46,6 +62,9 @@ public:
     // Prepares the message pool: the static one, or `poolBytes` allocated
     // here once when TINYMQ_BROKER_POOL_BYTES is 0. False if that fails.
     bool begin(size_t poolBytes = 0);
+    // Closes every connection (no wills) and forgets everything: sessions,
+    // subscriptions (the local client's and the taps' too), retained messages.
+    void end();
 
     // ---- settings
     void setMaxQos(uint8_t qos);                         // highest QoS granted to subscribers (default 2)
@@ -95,6 +114,17 @@ public:
     // Subscribing again with the same filter delivers the retained messages again.
     bool tapSubscribe(int tap, const char *filter, uint8_t qos);
     bool tapPublish(int tap, Bytes topic, Bytes payload, uint8_t qos, bool retain, Bytes props = Bytes());
+
+    // ---- persistence
+    // Writes the retained messages and the persistent sessions (their
+    // subscriptions and the QoS 1 / 2 messages not yet delivered; connected
+    // sessions as if they ended now). False if the sink failed.
+    bool saveState(StateSink &sink);
+    // Reads what saveState() wrote, before clients connect. Messages in
+    // flight then are delivered again from the start (QoS 1 may arrive twice).
+    // False if the data is not a saved state or something did not fit.
+    bool loadState(StateSource &source);
+    void onRetainedChange(RetainedHandler h, void *context = nullptr) { onRetained_ = h; onRetainedCtx_ = context; }
 
     // ---- statistics
     size_t clients() const;        // connected
@@ -225,6 +255,7 @@ private:
     bool removeSubscription(uint16_t s, Bytes filter);
     int findSubscription(uint16_t s, Bytes filter) const;
     bool allowed(int s, Bytes topic, bool subscribe);
+    bool saveMessage(StateSink &sink, uint32_t msg, uint8_t qos, bool retain, uint32_t subId);
 
     Conn conns_[TINYMQ_BROKER_MAX_CLIENTS];
     uint8_t rx_[TINYMQ_BROKER_MAX_CLIENTS][TINYMQ_BROKER_RX_BUFFER];
@@ -262,6 +293,8 @@ private:
     void *onLocalCtx_ = nullptr;
     ClientHandler onClient_ = nullptr;
     void *onClientCtx_ = nullptr;
+    RetainedHandler onRetained_ = nullptr;
+    void *onRetainedCtx_ = nullptr;
     MessageHandler tapHandler_[TINYMQ_BROKER_MAX_TAPS] = {};
     void *tapCtx_[TINYMQ_BROKER_MAX_TAPS] = {};
 };

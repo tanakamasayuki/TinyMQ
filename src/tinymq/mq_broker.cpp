@@ -55,6 +55,27 @@ bool Broker::begin(size_t poolBytes)
 #endif
 }
 
+void Broker::end()
+{
+    for (int i = 0; i < TINYMQ_BROKER_MAX_CLIENTS; ++i)
+        if (conns_[i].state != kFree)
+            closeConn(i, false);
+    for (int s = 0; s < TINYMQ_BROKER_MAX_SESSIONS; ++s)
+        if (sessions_[s].used)
+            destroySession(s);
+    for (Sub &sub : subs_) {
+        if (sub.session == kNone)
+            continue;
+        pool_.free(sub.filter);
+        pool_.free(sub.group);
+        sub.session = kNone;
+    }
+    for (uint32_t &r : retained_) {
+        store_.release(r);
+        r = Pool::kNull;
+    }
+}
+
 void Broker::setMaxQos(uint8_t qos)
 {
     uint8_t cap = TINYMQ_ENABLE_QOS2_DELIVERY ? 2 : 1;
@@ -338,6 +359,206 @@ bool Broker::tapPublish(int tap, Bytes topic, Bytes payload, uint8_t qos, bool r
     deliver((uint16_t)(kTapBase + tap), topic, payload, qos, retain, w.ok() ? w.result() : Bytes(), expiry);
     reapBroken();
     return dropped_ == before;
+}
+
+// ---- persistence
+//
+// "TMQS" 1, then records: 'R' retained message, 'S' session (its
+// subscriptions and messages follow), 'E' end. A message is: QoS, retain,
+// subscription id, seconds left before it expires (0: never), topic,
+// properties, payload. Integers are big-endian.
+
+namespace {
+
+bool put(StateSink &sink, const uint8_t *d, size_t n)
+{
+    return sink.write(d, n);
+}
+
+bool putU8(StateSink &sink, uint8_t v)
+{
+    return put(sink, &v, 1);
+}
+
+bool putU32(StateSink &sink, uint32_t v)
+{
+    uint8_t b[4] = {(uint8_t)(v >> 24), (uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v};
+    return put(sink, b, 4);
+}
+
+bool putBytes(StateSink &sink, Bytes b)
+{
+    return putU32(sink, b.len) && (b.len == 0 || put(sink, b.data, b.len));
+}
+
+bool getU8(StateSource &src, uint8_t &v)
+{
+    return src.read(&v, 1);
+}
+
+bool getU32(StateSource &src, uint32_t &v)
+{
+    uint8_t b[4];
+    if (!src.read(b, 4))
+        return false;
+    v = ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) | ((uint32_t)b[2] << 8) | b[3];
+    return true;
+}
+
+}  // namespace
+
+bool Broker::saveMessage(StateSink &sink, uint32_t msg, uint8_t qos, bool retain, uint32_t subId)
+{
+    uint32_t at = store_.expiry(msg);
+    uint32_t left = at ? ((int32_t)(at - seconds_) > 0 ? at - seconds_ : 1) : 0;
+    return putU8(sink, qos) && putU8(sink, retain ? 1 : 0) && putU32(sink, subId) && putU32(sink, left) && putBytes(sink, store_.topic(msg)) &&
+           putBytes(sink, store_.props(msg)) && putBytes(sink, store_.payload(msg));
+}
+
+bool Broker::saveState(StateSink &sink)
+{
+    static const uint8_t magic[] = {'T', 'M', 'Q', 'S', 1};
+    if (!put(sink, magic, sizeof(magic)))
+        return false;
+    for (uint32_t r : retained_) {
+        if (r == Pool::kNull || expired(r))
+            continue;
+        if (!putU8(sink, 'R') || !saveMessage(sink, r, store_.qos(r), true, 0))
+            return false;
+    }
+    for (int s = 0; s < TINYMQ_BROKER_MAX_SESSIONS; ++s) {
+        const Session &ss = sessions_[s];
+        if (!ss.used || ss.expiry == 0)
+            continue;
+        uint32_t subs = 0, msgs = 0;
+        for (const Sub &sub : subs_)
+            if (sub.session == s)
+                ++subs;
+        for (int i = 0; i < ss.queued; ++i)
+            if (ss.queue[i].msg != Pool::kNull && ss.queue[i].qos > 0)
+                ++msgs;
+        if (!putU8(sink, 'S') || !putU8(sink, ss.version) || !putU32(sink, ss.expiry) || !putBytes(sink, string(ss.clientId, ss.clientIdLen)) ||
+            !putU32(sink, subs) || !putU32(sink, msgs))
+            return false;
+        for (const Sub &sub : subs_) {
+            if (sub.session != s)
+                continue;
+            // the full filter: $share/<group>/ in front for shared ones
+            Bytes g = string(sub.group, sub.groupLen);
+            Bytes f = string(sub.filter, sub.filterLen);
+            uint32_t len = sub.group != Pool::kNull ? 7 + g.len + 1 + f.len : f.len;
+            if (!putU32(sink, len))
+                return false;
+            if (sub.group != Pool::kNull && !(put(sink, (const uint8_t *)"$share/", 7) && put(sink, g.data, g.len) && put(sink, (const uint8_t *)"/", 1)))
+                return false;
+            if (!put(sink, f.data, f.len) || !putU8(sink, sub.qos) || !putU8(sink, sub.options) || !putU32(sink, sub.subId))
+                return false;
+        }
+        for (int i = 0; i < ss.queued; ++i) {
+            const Entry &e = ss.queue[i];
+            if (e.msg != Pool::kNull && e.qos > 0 && !saveMessage(sink, e.msg, e.qos, e.retain, e.subId))
+                return false;
+        }
+    }
+    return putU8(sink, 'E');
+}
+
+bool Broker::loadState(StateSource &src)
+{
+    uint8_t magic[5];
+    if (!src.read(magic, 5) || memcmp(magic, "TMQS\x01", 5) != 0)
+        return false;
+    // A message: topic into topic_, properties into tx_, the payload straight
+    // into the pool. Returns kBroken if it could not be read or stored.
+    const uint32_t kBroken = Pool::kNull - 1;
+    auto readMessage = [&](uint8_t &qos, bool &retain, uint32_t &subId) -> uint32_t {
+        uint8_t r;
+        uint32_t left, tlen, plen, len;
+        if (!getU8(src, qos) || !getU8(src, r) || !getU32(src, subId) || !getU32(src, left) || !getU32(src, tlen) || tlen > TINYMQ_MAX_TOPIC_LEN ||
+            !src.read(reinterpret_cast<uint8_t *>(topic_), tlen) || !getU32(src, plen) || plen > sizeof(tx_) || !src.read(tx_, plen) || !getU32(src, len))
+            return kBroken;
+        retain = r != 0;
+        uint8_t *payload = nullptr;
+        uint32_t msg = store_.createEmpty(Bytes(reinterpret_cast<uint8_t *>(topic_), tlen), Bytes(tx_, plen), len, qos, retain, left ? seconds_ + left : 0, payload);
+        if (msg == Pool::kNull)
+            return kBroken;
+        if (len && !src.read(payload, len)) {
+            store_.release(msg);
+            return kBroken;
+        }
+        return msg;
+    };
+    for (;;) {
+        uint8_t type;
+        if (!getU8(src, type))
+            return false;
+        if (type == 'E')
+            return true;
+        if (type == 'R') {
+            uint8_t qos;
+            bool retain;
+            uint32_t subId;
+            uint32_t msg = readMessage(qos, retain, subId);
+            if (msg == kBroken)
+                return false;
+            storeRetained(msg, store_.topic(msg));
+            store_.release(msg);
+            continue;
+        }
+        if (type != 'S')
+            return false;
+        uint8_t version;
+        uint32_t expiry, idLen, subs, msgs;
+        char id[TINYMQ_MAX_TOPIC_LEN + 1];
+        if (!getU8(src, version) || !getU32(src, expiry) || !getU32(src, idLen) || idLen > TINYMQ_MAX_TOPIC_LEN || !src.read(reinterpret_cast<uint8_t *>(id), idLen) ||
+            !getU32(src, subs) || !getU32(src, msgs))
+            return false;
+        int s = findSession(Bytes(reinterpret_cast<uint8_t *>(id), idLen));
+        if (s < 0) {
+            s = newSession(now_);
+            if (s < 0)
+                return false;
+            sessions_[s].clientId = storeString(Bytes(reinterpret_cast<uint8_t *>(id), idLen));
+            sessions_[s].clientIdLen = (uint16_t)idLen;
+            if (sessions_[s].clientId == Pool::kNull)
+                return false;
+        }
+        Session &ss = sessions_[s];
+        ss.version = version;
+        ss.expiry = expiry;
+        ss.lastSeen = seconds_;
+        for (uint32_t i = 0; i < subs; ++i) {
+            uint32_t flen, subId;
+            uint8_t qos, options;
+            char f[TINYMQ_MAX_TOPIC_LEN + 1];
+            if (!getU32(src, flen) || flen > TINYMQ_MAX_TOPIC_LEN || !src.read(reinterpret_cast<uint8_t *>(f), flen) || !getU8(src, qos) || !getU8(src, options) ||
+                !getU32(src, subId))
+                return false;
+            bool replaced;
+            if (addSubscription((uint16_t)s, Bytes(reinterpret_cast<uint8_t *>(f), flen), qos, options, subId, replaced) < 0)
+                return false;
+        }
+        for (uint32_t i = 0; i < msgs; ++i) {
+            uint8_t qos;
+            bool retain;
+            uint32_t subId;
+            uint32_t msg = readMessage(qos, retain, subId);
+            if (msg == kBroken)
+                return false;
+            if (ss.queued < TINYMQ_BROKER_MAX_QUEUED) {
+                Entry &e = ss.queue[ss.queued++];
+                e.msg = msg;
+                e.subId = subId;
+                e.packetId = 0;
+                e.qos = qos;
+                e.state = kQueued;
+                e.retain = retain;
+            } else {
+                store_.release(msg);
+                ++dropped_;
+            }
+        }
+    }
 }
 
 // ---- statistics
@@ -1372,8 +1593,11 @@ void Broker::storeRetained(uint32_t msg, Bytes topic)
             break;
         }
     }
-    if (msg == Pool::kNull || store_.payload(msg).len == 0)
+    if (msg == Pool::kNull || store_.payload(msg).len == 0) {
+        if (slot >= 0 && onRetained_)
+            onRetained_(topic, true, onRetainedCtx_);
         return;  // an empty retained message deletes
+    }
     if (slot < 0)
         for (int i = 0; i < TINYMQ_BROKER_MAX_RETAINED; ++i)
             if (retained_[i] == Pool::kNull) {
@@ -1386,6 +1610,8 @@ void Broker::storeRetained(uint32_t msg, Bytes topic)
     }
     store_.addRef(msg);
     retained_[slot] = msg;
+    if (onRetained_)
+        onRetained_(topic, false, onRetainedCtx_);
 }
 
 void Broker::sendRetained(uint16_t s, Bytes filter, uint8_t grantedQos, uint32_t subId)

@@ -50,6 +50,9 @@ SPEC §7 の順に進める。
 - [x] Phase 7: ブリッジ(`TinyMQBridge`)。ブローカーのタップ(自分の入れたものを受けない内部購読者)と `TinyMQClient` で、mosquitto の bridge 相当(out / in / both、プレフィックス、QoS)。再接続時に上流の購読とローカルの retain をやり直す
   - [ ] 上流が落ちている間の out のメッセージを貯める(今は捨てて数える)
 - [ ] Phase 8: lwIP の受け口、永続化のフック
+  - [x] 永続化: `saveState()` / `loadState()`(保存先は `StateSink` / `StateSource` でスケッチが選ぶ)、retain の変化のコールバック、`end()`
+  - [ ] LittleFS に保存するサンプル
+  - [ ] lwIP の受け口
 - [ ] 既定値と設定のプリセットを実測で決める
 
 ## 未決定(TBD)

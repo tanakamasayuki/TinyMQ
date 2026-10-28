@@ -452,6 +452,69 @@ def scenario_payload_sizes(d, port):
         b.close()
 
 
+def scenario_persistence(d, port):
+    """saveState() / loadState(): retained messages and persistent sessions survive a restart."""
+    a = peer(port, "a")
+    try:
+        k = mp.RawClient(port)
+        k.connect("keep1", clean=False)
+        k.subscribe(1, [("pz/#", 1)])
+        k.send(mp.DISCONNECT)
+        k.close()
+        k5 = mp.RawClient5(port)
+        k5.connect("keep5", props=mp.prop_u32(0x11, 600))
+        assert k5.subscribe(1, [("pz5/#", 1), ("$share/g/pzs/#", 1)], mp.prop_varint(0x0B, 9)) == [1, 1]
+        k5.send(mp.disconnect5())
+        k5.close()
+        a.publish("pz/1", "queued", qos=1)
+        a.publish("pz/r", "kept", qos=1, retain=True)
+        a.close()
+        a = None
+        d.wait_clients(0)
+        d.send("REBOOT")
+        m = d.expect(r"^REBOOT (ok|fail) (\d+) (\d+)")
+        assert m.group(1) == "ok", m.group(0)
+        assert int(m.group(3)) >= 1, "the retained-change hook was called"
+        s = d.stats()
+        assert (s["clients"], s["sessions"], s["retained"]) == (0, 2, 1), s
+
+        b = peer(port, "b")
+        b.subscribe("pz/r", 0)
+        m = b.expect()
+        assert (m.payload, m.retain) == (b"kept", True)
+        b.close()
+        k = mp.RawClient(port)
+        assert k.connect("keep1", clean=False) is True
+        topic, pid, payload, qos, _, _ = mp.parse_publish(*k.recv_packet())
+        assert (topic, payload, qos) == ("pz/1", b"queued", 1)
+        k.send(mp.ack(4, pid))
+        k.send(mp.DISCONNECT)
+        k.close()
+        k = mp.RawClient(port)
+        k.connect("keep1", clean=True)
+        k.send(mp.DISCONNECT)
+        k.close()
+        k5 = mp.RawClient5(port)
+        present, _ = k5.connect("keep5", clean=False, props=mp.prop_u32(0x11, 600))
+        assert present
+        a = peer(port, "a")
+        a.publish("pz5/x", "after", qos=1)
+        first, body = k5.recv_packet()
+        p = mp.parse_publish5(first, body)
+        assert (p["topic"], mp.prop(p["props"], 0x0B)) == ("pz5/x", 9), p
+        k5.send(mp.ack5(4, p["packet_id"]))
+        a.publish("pzs/y", "shared", qos=1)
+        p = mp.parse_publish5(*k5.recv_packet())
+        assert p["topic"] == "pzs/y", p
+        k5.send(mp.ack5(4, p["packet_id"]))
+        k5.send(mp.disconnect5(props=mp.prop_u32(0x11, 0)))
+        k5.close()
+        a.publish("pz/r", "", qos=1, retain=True)
+    finally:
+        if a:
+            a.close()
+
+
 def scenario_clean_state(d, port):
     """Everything the scenarios left was freed: no clients, sessions, subscriptions or pool bytes."""
     d.wait_clients(0)
@@ -502,6 +565,7 @@ def test_broker_interop(dut, record_property):
         run(name, fn)
     for name, fn in V5_SCENARIOS:
         run(name, fn)
+    run("persistence", scenario_persistence)
     for name, fn in SN_SCENARIOS:
         run(name, lambda d, port, fn=fn: fn(d, port, sn_port))
     run("clean_state", scenario_clean_state)

@@ -107,10 +107,18 @@ size_t MessageStore::footprint(size_t topicLen, size_t propsLen, size_t payloadL
 
 uint32_t MessageStore::create(Bytes topic, Bytes props, Bytes payload, uint8_t qos, bool retain, uint32_t expiry)
 {
+    uint8_t *p;
+    uint32_t h = createEmpty(topic, props, payload.len, qos, retain, expiry, p);
+    if (h != Pool::kNull && payload.len)
+        memcpy(p, payload.data, payload.len);
+    return h;
+}
+
+uint32_t MessageStore::createEmpty(Bytes topic, Bytes props, size_t payloadLen, uint8_t qos, bool retain, uint32_t expiry, uint8_t *&payload)
+{
     if (topic.len > 0xFFFF)
         return Pool::kNull;
-    size_t n = sizeof(Head) + topic.len + props.len + payload.len;
-    uint32_t h = pool_.alloc(n);
+    uint32_t h = pool_.alloc(sizeof(Head) + topic.len + props.len + payloadLen);
     if (h == Pool::kNull)
         return h;
     Head *m = head(h);
@@ -120,15 +128,14 @@ uint32_t MessageStore::create(Bytes topic, Bytes props, Bytes payload, uint8_t q
     m->topicLen = (uint16_t)topic.len;
     m->reserved2 = 0;
     m->propsLen = props.len;
-    m->payloadLen = payload.len;
+    m->payloadLen = (uint32_t)payloadLen;
     m->expiry = expiry;
     uint8_t *d = pool_.ptr(h) + sizeof(Head);
     if (topic.len)
         memcpy(d, topic.data, topic.len);
     if (props.len)
         memcpy(d + topic.len, props.data, props.len);
-    if (payload.len)
-        memcpy(d + topic.len + props.len, payload.data, payload.len);
+    payload = d + topic.len + props.len;
     return h;
 }
 
