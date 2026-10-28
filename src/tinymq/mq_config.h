@@ -92,6 +92,11 @@
 #define TINYMQ_BROKER_TOPIC_ALIAS_MAX 8
 #endif
 
+// Internal subscribers for bridges (TinyMQBridge), one per bridge
+#ifndef TINYMQ_BROKER_MAX_TAPS
+#define TINYMQ_BROKER_MAX_TAPS 2
+#endif
+
 // Include QoS 2 delivery to subscribers (receiving QoS 2 is always supported)
 #ifndef TINYMQ_ENABLE_QOS2_DELIVERY
 #define TINYMQ_ENABLE_QOS2_DELIVERY 1
@@ -142,4 +147,11 @@
 // Longest topic name remembered
 #ifndef TINYMQ_SN_CLIENT_TOPIC_LEN
 #define TINYMQ_SN_CLIENT_TOPIC_LEN 32
+#endif
+
+// ---- bridge (TinyMQBridge)
+
+// Topic map entries per bridge
+#ifndef TINYMQ_BRIDGE_MAX_TOPICS
+#define TINYMQ_BRIDGE_MAX_TOPICS 8
 #endif

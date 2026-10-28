@@ -290,6 +290,56 @@ bool Broker::unsubscribe(const char *filter)
     return removeSubscription(kLocal, Bytes(filter));
 }
 
+// ---- taps
+
+int Broker::addTap(MessageHandler h, void *context)
+{
+    for (int i = 0; i < TINYMQ_BROKER_MAX_TAPS; ++i)
+        if (!tapHandler_[i]) {
+            tapHandler_[i] = h;
+            tapCtx_[i] = context;
+            return i;
+        }
+    return -1;
+}
+
+bool Broker::tapSubscribe(int tap, const char *filter, uint8_t qos)
+{
+    Bytes f(filter);
+    Bytes group, inner;
+    if (tap < 0 || tap >= TINYMQ_BROKER_MAX_TAPS || !tapHandler_[tap] || !validTopicFilter(f) || f.len > TINYMQ_MAX_TOPIC_LEN || qos > 2 ||
+        parseSharedFilter(f, group, inner))
+        return false;
+    bool replaced;
+    SubOptions o;
+    o.qos = qos;
+    o.noLocal = true;
+    o.retainAsPublished = true;
+    uint16_t s = (uint16_t)(kTapBase + tap);
+    if (addSubscription(s, f, qos, o.encode(), 0, replaced) < 0)
+        return false;
+    sendRetained(s, f, qos, 0);
+    reapBroken();
+    return true;
+}
+
+bool Broker::tapPublish(int tap, Bytes topic, Bytes payload, uint8_t qos, bool retain, Bytes props)
+{
+    if (tap < 0 || tap >= TINYMQ_BROKER_MAX_TAPS || !validTopicName(topic) || !validUtf8(topic.data, topic.len) || topic.len > TINYMQ_MAX_TOPIC_LEN || qos > 2)
+        return false;
+    // as for a client's PUBLISH: alias and subscription identifiers are not
+    // kept, and the expiry becomes a time
+    uint8_t keep[256];
+    PropWriter w(keep, sizeof(keep));
+    w.copy(props, kNotKept, sizeof(kNotKept));
+    Property p;
+    uint32_t expiry = findProp(props, kMessageExpiryInterval, p) ? seconds_ + p.value : 0;
+    uint32_t before = dropped_;
+    deliver((uint16_t)(kTapBase + tap), topic, payload, qos, retain, w.ok() ? w.result() : Bytes(), expiry);
+    reapBroken();
+    return dropped_ == before;
+}
+
 // ---- statistics
 
 size_t Broker::clients() const
@@ -1232,16 +1282,29 @@ bool Broker::route(uint16_t from, uint32_t msg)
     memset(best, 0xFF, sizeof(best));
     bool any = false;
     int local = -1;
+    int tapBest[TINYMQ_BROKER_MAX_TAPS];
+    for (int &t : tapBest)
+        t = -1;
     for (int i = 0; i < TINYMQ_BROKER_MAX_SUBSCRIPTIONS; ++i) {
         const Sub &sub = subs_[i];
         if (sub.session == kNone || !topicMatches(string(sub.filter, sub.filterLen), topic))
             continue;
-        any = true;
         if (sub.session == kLocal) {
+            any = true;
             if (sub.qos > local)
                 local = sub.qos;
             continue;
         }
+        if (isInternal(sub.session)) {
+            int t = sub.session - kTapBase;
+            if (sub.session == from)
+                continue;  // a tap never gets its own messages back
+            any = true;
+            if (sub.qos > tapBest[t])
+                tapBest[t] = sub.qos;
+            continue;
+        }
+        any = true;
         SubOptions o = SubOptions::decode(sub.options);
         uint8_t q = qos < sub.qos ? qos : sub.qos;
         if (sub.group != Pool::kNull) {
@@ -1250,14 +1313,14 @@ bool Broker::route(uint16_t from, uint32_t msg)
             Bytes f = string(sub.filter, sub.filterLen);
             bool done = false;
             for (int j = 0; j < i && !done; ++j)
-                done = subs_[j].session != kNone && subs_[j].session != kLocal && subs_[j].group != Pool::kNull &&
+                done = subs_[j].session != kNone && !isInternal(subs_[j].session) && subs_[j].group != Pool::kNull &&
                        string(subs_[j].group, subs_[j].groupLen).equals(g) && string(subs_[j].filter, subs_[j].filterLen).equals(f);
             if (done)
                 continue;
             int members[16];
             int count = 0, online = 0;
             for (int j = i; j < TINYMQ_BROKER_MAX_SUBSCRIPTIONS && count < 16; ++j)
-                if (subs_[j].session != kNone && subs_[j].session != kLocal && subs_[j].group != Pool::kNull &&
+                if (subs_[j].session != kNone && !isInternal(subs_[j].session) && subs_[j].group != Pool::kNull &&
                     string(subs_[j].group, subs_[j].groupLen).equals(g) && string(subs_[j].filter, subs_[j].filterLen).equals(f)) {
                     // online members first
                     if (sessions_[subs_[j].session].conn != kNone) {
@@ -1292,6 +1355,9 @@ bool Broker::route(uint16_t from, uint32_t msg)
     }
     if (local >= 0)
         deliverLocal(msg, qos < local ? qos : (uint8_t)local, false);
+    for (int t = 0; t < TINYMQ_BROKER_MAX_TAPS; ++t)
+        if (tapBest[t] >= 0)
+            deliverTo(tapHandler_[t], tapCtx_[t], msg, qos < tapBest[t] ? qos : (uint8_t)tapBest[t], msgRetain);
     return any;
 }
 
@@ -1337,16 +1403,23 @@ void Broker::sendRetained(uint16_t s, Bytes filter, uint8_t grantedQos, uint32_t
         uint8_t qos = store_.qos(r) < grantedQos ? store_.qos(r) : grantedQos;
         if (s == kLocal)
             deliverLocal(r, qos, true);
+        else if (isInternal(s))
+            deliverTo(tapHandler_[s - kTapBase], tapCtx_[s - kTapBase], r, qos, true);
         else
             enqueue(s, r, qos, true, subId);
     }
-    if (s != kLocal)
+    if (!isInternal(s))
         flush(s);
 }
 
 void Broker::deliverLocal(uint32_t msg, uint8_t qos, bool retain)
 {
-    if (!onLocal_)
+    deliverTo(onLocal_, onLocalCtx_, msg, qos, retain);
+}
+
+void Broker::deliverTo(MessageHandler h, void *ctx, uint32_t msg, uint8_t qos, bool retain)
+{
+    if (!h)
         return;
     Bytes topic = store_.topic(msg);
     Bytes payload = store_.payload(msg);
@@ -1361,7 +1434,7 @@ void Broker::deliverLocal(uint32_t msg, uint8_t qos, bool retain)
     m.retain = retain;
     m.dup = false;
     m.props = store_.props(msg);
-    onLocal_(m, onLocalCtx_);
+    h(m, ctx);
 }
 
 int Broker::findSubscription(uint16_t s, Bytes filter) const

@@ -24,3 +24,4 @@
 #include "TinyMQTcpListener.h"
 #include "TinyMQSnListener.h"
 #include "TinyMQClientSn.h"
+#include "TinyMQBridge.h"

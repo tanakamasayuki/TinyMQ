@@ -52,14 +52,14 @@ def make_password_file(path, users):
 
 
 @contextmanager
-def mosquitto(workdir, extra_conf="", allow_anonymous=True, bind="127.0.0.1"):
-    """Starts mosquitto on a free port of `bind` and yields (port, log path)."""
+def mosquitto(workdir, extra_conf="", allow_anonymous=True, bind="127.0.0.1", port=None):
+    """Starts mosquitto on `port` (default: a free one) of `bind` and yields (port, log path)."""
     exe, env = _find("mosquitto")
     if exe is None:
         pytest.skip("mosquitto not found (run tests/tools/fetch_mosquitto.sh)")
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
-    port = free_port()
+    port = port or free_port()
     conf = workdir / f"mosquitto-{port}.conf"
     conf.write_text(
         f"listener {port}{'' if bind == '0.0.0.0' else ' ' + bind}\n"
@@ -69,7 +69,7 @@ def mosquitto(workdir, extra_conf="", allow_anonymous=True, bind="127.0.0.1"):
         f"{extra_conf}\n"
     )
     log_path = workdir / f"mosquitto-{port}.log"
-    log = open(log_path, "w")
+    log = open(log_path, "a")
     proc = subprocess.Popen([str(exe), "-c", str(conf), "-v"], stdout=log, stderr=subprocess.STDOUT, env={**os.environ, **env})
     try:
         deadline = time.time() + 5

@@ -57,6 +57,12 @@ bool TinyMQClient::connect()
     return engine_.connected();
 }
 
+void TinyMQClient::connectAsync()
+{
+    wanted_ = true;
+    openAndStart();
+}
+
 bool TinyMQClient::connect(const char *clientId)
 {
     engine_.setClientId(clientId);

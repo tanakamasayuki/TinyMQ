@@ -47,6 +47,10 @@ public:
     // Opens the connection and waits for CONNACK. True when accepted.
     bool connect();
     bool connect(const char *clientId);
+    // Opens the connection and returns without waiting: CONNACK is handled by
+    // update(), and with a reconnect interval it keeps trying. The TCP
+    // connect itself still blocks as long as the Client's connect() does.
+    void connectAsync();
     // 5.0: tinymq::kDisconnectWithWill asks the server to publish the will
     void disconnect(uint8_t reason = tinymq::kSuccess);
     bool connected() const { return engine_.connected(); }

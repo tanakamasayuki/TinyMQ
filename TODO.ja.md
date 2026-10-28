@@ -47,7 +47,8 @@ SPEC §7 の順に進める。
   - [x] ブローカー(セッション / メッセージの有効期限、Will Delay、購読識別子と購読オプション、共有購読、受信側のトピックエイリアス、Receive Maximum、Maximum Packet Size、理由コード)
   - [x] クライアント(CONNECT / CONNACK のプロパティ、プロパティ付きの publish、購読オプションと識別子、理由コード付きの DISCONNECT)。mosquitto と偽ブローカーで試験
   - [ ] 拡張認証(AUTH)。今は Authentication Method を CONNACK 0x8C で断る
-- [ ] Phase 7: ブリッジ
+- [x] Phase 7: ブリッジ(`TinyMQBridge`)。ブローカーのタップ(自分の入れたものを受けない内部購読者)と `TinyMQClient` で、mosquitto の bridge 相当(out / in / both、プレフィックス、QoS)。再接続時に上流の購読とローカルの retain をやり直す
+  - [ ] 上流が落ちている間の out のメッセージを貯める(今は捨てて数える)
 - [ ] Phase 8: lwIP の受け口、永続化のフック
 - [ ] 既定値と設定のプリセットを実測で決める
 

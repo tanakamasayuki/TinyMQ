@@ -89,6 +89,13 @@ public:
     bool unsubscribe(const char *filter);
     void onMessage(MessageHandler h, void *context = nullptr) { onLocal_ = h; onLocalCtx_ = context; }
 
+    // ---- taps: internal subscribers for bridges. A tap never receives what
+    // it published itself, and gets the retain flag as published.
+    int addTap(MessageHandler h, void *context);  // tap number, or -1
+    // Subscribing again with the same filter delivers the retained messages again.
+    bool tapSubscribe(int tap, const char *filter, uint8_t qos);
+    bool tapPublish(int tap, Bytes topic, Bytes payload, uint8_t qos, bool retain, Bytes props = Bytes());
+
     // ---- statistics
     size_t clients() const;        // connected
     size_t sessions() const;       // connected and offline persistent
@@ -102,6 +109,8 @@ private:
     enum ConnState : uint8_t { kFree, kWaitConnect, kActive };
     enum EntryState : uint8_t { kQueued, kWaitPuback, kWaitPubrec, kWaitPubcomp };
     static const uint16_t kLocal = 0xFFFE;
+    static const uint16_t kTapBase = 0xFF00;  // kTapBase + tap number
+    static bool isInternal(uint16_t s) { return s >= kTapBase && s != kNone; }
 
     static const uint32_t kNever = 0xFFFFFFFF;
 
@@ -210,6 +219,7 @@ private:
     void storeRetained(uint32_t msg, Bytes topic);  // msg kNull or empty: delete
     void sendRetained(uint16_t s, Bytes filter, uint8_t grantedQos, uint32_t subId);
     void deliverLocal(uint32_t msg, uint8_t qos, bool retain);
+    void deliverTo(MessageHandler h, void *ctx, uint32_t msg, uint8_t qos, bool retain);
     // `filter` is the full filter, $share/<group>/ included
     int addSubscription(uint16_t s, Bytes filter, uint8_t qos, uint8_t options, uint32_t subId, bool &replaced);
     bool removeSubscription(uint16_t s, Bytes filter);
@@ -252,6 +262,8 @@ private:
     void *onLocalCtx_ = nullptr;
     ClientHandler onClient_ = nullptr;
     void *onClientCtx_ = nullptr;
+    MessageHandler tapHandler_[TINYMQ_BROKER_MAX_TAPS] = {};
+    void *tapCtx_[TINYMQ_BROKER_MAX_TAPS] = {};
 };
 
 }  // namespace tinymq

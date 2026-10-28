@@ -2,7 +2,7 @@
 
 [日本語](SPEC.ja.md)
 
-> Status: Phases 0 to 4 and 6 implemented (2026-10-28): MQTT 3.1.1 / 3.1 / 5.0 client and broker (enhanced authentication aside), MQTT-SN 1.2 gateway and client. Tested on the host and on ESP32 / ESP32-S3 boards over Wi-Fi. Values not yet decided are marked `TBD`.
+> Status: Phases 0 to 4, 6 and 7 implemented (2026-10-28), bridges included: MQTT 3.1.1 / 3.1 / 5.0 client and broker (enhanced authentication aside), MQTT-SN 1.2 gateway and client. Tested on the host and on ESP32 / ESP32-S3 boards over Wi-Fi. Values not yet decided are marked `TBD`.
 
 ## 1. Purpose and scope
 
