@@ -9,11 +9,11 @@ from helpers.mqtt_packets import ack, connack, parse_publish, publish  # noqa: F
 
 
 class FakeBroker:
-    def __init__(self):
+    def __init__(self, bind="127.0.0.1"):
         self.port = free_port()
         self.listener = socket.socket()
         self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.listener.bind(("127.0.0.1", self.port))
+        self.listener.bind((bind, self.port))
         self.listener.listen(1)
         self.conn = None
 

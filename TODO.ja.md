@@ -5,7 +5,8 @@
 ## 現状
 
 - Phase 0〜4 まで済み: MQTT 3.1.1 / 3.1 のクライアント(`TinyMQClient`)とブローカー(`TinyMQBroker` + `TinyMQTcpListener`)、MQTT-SN 1.2 のゲートウェイ(`TinyMQSnListener`)とクライアント(`TinyMQClientSn`)
-- host の試験(`smoke` `codec` `topic` `pool` `sn_codec` `client_interop` `broker_interop` `sn_client_interop`)はすべて通る。ESP32 / Pico W / CH32V307 はビルドのみで、実機ではまだ動かしていない
+- host の試験(`smoke` `codec` `topic` `pool` `sn_codec` `client_interop` `broker_interop` `sn_client_interop`)はすべて通る
+- 実機(2026-10-28): ESP32(D0WDQ6)/ ESP32-S3 で単体テストと、Wi-Fi 越しの `broker_interop`(29 シナリオ)、`client_interop`(12)、`sn_client_interop`(8)が通過。Pico W はビルドのみ。CH32V307 はつながっていなかったので未実施
 - ブランチは `main` のみ。push はまだ
 - 決まったこと(詳細は SPEC)
   - クライアントとブローカーを 1 つのライブラリに入れ、使う側だけを選ぶ
@@ -33,7 +34,12 @@ SPEC §7 の順に進める。
   - [x] `TinyMQClientSn`(段階を選べるクライアント、手順はブロッキング)。自前のゲートウェイと偽ゲートウェイで試験。CH32V307 で段階ごとのフットプリントを計測(SPEC §4.5)
   - [ ] ほかの MQTT-SN 実装(Eclipse Paho MQTT-SN Gateway など)との相互接続
   - [ ] Forwarder Encapsulation、送信元アドレスの許可リスト
-- [ ] Phase 5: 実機(ESP32 / ESP32-S3 / Pico W / CH32V307)、計測、TinyWG との組み合わせ
+- [ ] Phase 5: 実機
+  - [x] ESP32 / ESP32-S3: 単体テストと 3 つの相互接続試験(Wi-Fi)
+  - [ ] ESP32 の `sn_client_interop` の `resend` が 1 回だけ失敗した(偽ゲートウェイが最初に REGISTER ではなく PUBLISH を受けた)。再実行では通り、ESP32-S3 でも通る。原因は未特定。再発したら受信内容がアサーションに出る
+  - [ ] CH32V307(Ethernet、Network ライブラリ)。ブローカーの軽い構成と MQTT-SN クライアント。ベンチのロックを取って使う
+  - [ ] Pico W(つながっていない)
+  - [ ] 計測(ブローカーの接続数ごとの RAM、配送の速さと遅延)、TinyWG との組み合わせ
 - [ ] Phase 6: MQTT 5.0
 - [ ] Phase 7: ブリッジ
 - [ ] Phase 8: lwIP の受け口、永続化のフック
@@ -48,6 +54,8 @@ SPEC §7 の順に進める。
 - ブリッジで複数の上流を扱うか
 
 ## 環境メモ
+
+- **実機の試験**: `tests/.env` は TinyWG と同じボード(`/run/board-identify/by-id/...`)と Wi-Fi を使う。ボードはほかのスイートと共有で、シリアルはプラグインが排他する
 
 - **mosquitto**: この PC には入っていない(sudo にパスワードが要る)。`tests/tools/fetch_mosquitto.sh` で `tests/.tools/mosquitto` に展開して使っている(git 管理外)
 

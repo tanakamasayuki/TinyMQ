@@ -14,6 +14,7 @@ from helpers import sn_peer as snp
 from helpers.line_dut import LineDut
 from helpers.mosquitto import free_port
 from helpers.paho_peer import PahoPeer
+from helpers import target
 
 
 class Dut(LineDut):
@@ -44,9 +45,9 @@ class Dut(LineDut):
 class FakeGateway:
     """A UDP socket standing in for the gateway."""
 
-    def __init__(self):
+    def __init__(self, bind="127.0.0.1"):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(("127.0.0.1", 0))
+        self.sock.bind((bind, 0))
         self.sock.settimeout(5)
         self.port = self.sock.getsockname()[1]
         self.peer = None
@@ -202,7 +203,7 @@ def scenario_sleep(d, port, sn_port):
 
 
 def connect_fake(d, fake):
-    d.setting(f"GW 127.0.0.1 {fake.port}")
+    d.setting(f"GW {d.pc} {fake.port}")
     d.send("CONNECT")
     t, body = fake.recv()
     assert t == snp.CONNECT and body[4:] == b"dut-sn", body
@@ -211,13 +212,13 @@ def connect_fake(d, fake):
 
 
 def scenario_resend(d, port, sn_port):
-    fake = FakeGateway()
+    fake = FakeGateway(d.bind)
     try:
         d.setting("RETRY 300 3")
         connect_fake(d, fake)
         d.send("PUB 1 0 rs/x hello")
         t, body = fake.recv()
-        assert t == snp.REGISTER
+        assert t == snp.REGISTER, (t, body)
         tid_unused, mid = struct.unpack(">HH", body[:4])
         fake.send(snp.REGACK, struct.pack(">HHB", 5, mid, 0))
         t, body = fake.recv()
@@ -276,9 +277,9 @@ def scenario_resend(d, port, sn_port):
 
 
 def scenario_refused(d, port, sn_port):
-    fake = FakeGateway()
+    fake = FakeGateway(d.bind)
     try:
-        d.setting(f"GW 127.0.0.1 {fake.port}")
+        d.setting(f"GW {d.pc} {fake.port}")
         d.send("CONNECT")
         fake.recv()
         fake.send(snp.CONNACK, b"\x03")
@@ -288,9 +289,9 @@ def scenario_refused(d, port, sn_port):
 
 
 def scenario_search(d, port, sn_port):
-    fake = FakeGateway()
+    fake = FakeGateway(d.bind)
     try:
-        d.send(f"SEARCH 127.0.0.1 {fake.port}")
+        d.send(f"SEARCH {d.pc} {fake.port}")
         t, body = fake.recv()
         assert (t, body) == (snp.SEARCHGW, b"\x01")
         fake.send(snp.GWINFO, b"\x05")
@@ -311,11 +312,17 @@ def scenario_search(d, port, sn_port):
 
 def test_sn_client_interop(dut, record_property):
     d = Dut(dut)
-    d.expect("^READY", timeout=30)
-    port = free_port()
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-        s.bind(("127.0.0.1", 0))
-        sn_port = s.getsockname()[1]
+    ip = d.ready()
+    d.pc = target.pc_address_for(ip)  # the scripted gateway runs on the PC
+    d.bind = target.bind_address_for(ip)
+    if target.is_local(ip):
+        port = free_port()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.bind(("127.0.0.1", 0))
+            sn_port = s.getsockname()[1]
+    else:
+        port, sn_port = 1883, 1884
+        target.HOST = ip  # paho reaches the broker on the board
     d.send(f"BROKER {port} {sn_port}")
     d.expect("^BROKER ready")
     results = {}
@@ -342,5 +349,6 @@ def test_sn_client_interop(dut, record_property):
     ):
         run(name, fn)
 
+    target.HOST = "127.0.0.1"
     failed = {k: v for k, v in results.items() if v != "PASS"}
     assert not failed, failed

@@ -42,6 +42,12 @@ class LineDut:
                 return m
             self.backlog.append(line)
 
+    def ready(self, timeout=150):
+        """Waits for READY <ip> (after joining Wi-Fi on a board) and returns the ip."""
+        m = self.expect(r"^(READY|NET_ERROR) ?(.*)$", timeout)
+        assert m.group(1) == "READY", f"the board has no network: {m.group(2)}"
+        return m.group(2).strip()
+
     def expect_none(self, pattern, wait=1.0):
         try:
             m = self.expect(pattern, timeout=wait)

@@ -6,7 +6,7 @@ dependencies = [
     "pytest>=8",
     "pytest-embedded>=2.0",
     "pytest-embedded-serial>=2.0",
-    "pytest-embedded-arduino-cli>=1.1",
+    "pytest-embedded-arduino-cli>=1.10",
     "pytest-html>=4.1.1",
     "paho-mqtt>=2.1",
 ]
@@ -16,4 +16,6 @@ filterwarnings = [
     "ignore:record_xml_attribute is an experimental feature:pytest.PytestExperimentalApiWarning",
 ]
 addopts = "--save-state"
+# removed before every test, before any sketch starts (mosquitto configs and logs)
+arduino_reset_dirs = ["output"]
 pythonpath = ["."]

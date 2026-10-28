@@ -27,15 +27,27 @@ tests/tools/fetch_mosquitto.sh
 | `codec/` | 可変長整数、UTF-8 の検証、固定ヘッダ、全パケット種別のエンコード / デコード(3.1.1 と 5.0)を仕様書から組み立てたバイト列と照合。不正なパケットの拒否、バッファ不足 | 同上 |
 | `sn_codec/` | MQTT-SN 1.2 のフラグ、長さの短い形式と長い形式(256 オクテットの境界)、ゲートウェイとクライアントが使う全メッセージを仕様書から組み立てたバイト列と照合。不正なメッセージの拒否 | host / esp32 / esp32s3 / ch32v307 / picow |
 | `topic/` | トピック名とフィルタの検証、照合(仕様書 §4.7 の例)、`$` で始まるトピック、共有購読 `$share/` の分解 | 同上 |
-| `client_interop/` | `TinyMQClient`(3.1.1 / 3.1)をシリアルのコマンドで動かす。mosquitto 相手に QoS 0 / 1 / 2 の送受信と QoS の引き下げ、retain、購読解除、will(DISCONNECT では出ない / 切断で出る)、永続セッション、keepalive、受信バッファより大きいメッセージの読み捨て、MQTT 3.1、ユーザ名とパスワード。スクリプトで動かす偽ブローカー相手に、再接続後の QoS 1 の再送(DUP)と PUBREL の再送、セッションがないときは再送しないこと、QoS 2 の重複受信、PINGRESP が来ないときの切断、接続の拒否 | host のみ |
-| `broker_interop/` | `TinyMQBroker` + `TinyMQTcpListener<WiFiServer>` をシリアルのコマンドで動かし、paho-mqtt と生ソケットのクライアントから接続。QoS 0 / 1 / 2 と重なる購読(最大の QoS で 1 回)、最大 QoS の制限、ワイルドカードと `$` トピック、retain(転送時はフラグを落とす、同じフィルタの再購読で再送、空で削除)、will(切断・keepalive 切れで出る / DISCONNECT では出ない)、永続セッション(QoS 0 は保持しない)、同じ Client ID の乗っ取り、再接続後の DUP 付き再送と PUBREL の再送、QoS 2 の重複受信、認証、トピックごとの認可、ローカルクライアント、購読解除、プロトコル違反(CONNECT 前のパケット、未知のレベル、空の Client ID、2 回目の CONNECT、予約フラグ、大きすぎるパケット、CONNECT の待ち時間切れ)、MQTT 3.1、接続数の上限、ペイロードの長さ、最後に全部が解放されたことの確認。同じ DUT で MQTT-SN ゲートウェイ(`TinyMQSnListener`)も Python 製の MQTT-SN クライアント(`helpers/sn_peer.py`)から試す(`sn_scenarios.py`): QoS 0 / 1 / 2 の送受信と TCP 側との相互の配送、トピック名の登録、ワイルドカード購読でゲートウェイから REGISTER、短いトピック名、事前定義トピック、未知のトピック ID、接続なしの QoS -1、will(WILLTOPIC / WILLMSG のやり取り、WILLTOPICUPD / WILLMSGUPD、keepalive 切れで出る)、keepalive、スリープ(眠っている間のメッセージを起床時に配送して PINGRESP)、UDP での再送(DUP)と応答しないクライアントの切断、QoS 2 の重複受信、永続セッション、CONNECT の再送、SEARCHGW | host のみ |
-| `sn_client_interop/` | `TinyMQClientSn` をシリアルのコマンドで動かす。同じスケッチの中で動くブローカーのゲートウェイと実際の UDP ソケットでつなぎ(待っている間は `onIdle()` でブローカーを回す)、paho-mqtt で TCP 側から確かめる: 接続なしの QoS -1、QoS 0 / 1 / 2 の送信(登録は自動)、retain、事前定義と短いトピック名、購読(ワイルドカードでゲートウェイから REGISTER)、will と keepalive 切れ、スリープと起床時の受信、スリープからの CONNECT。スクリプトで動かす偽ゲートウェイ相手に、DUP 付きの再送、「不正なトピック ID」での登録し直し、応答がないときの失敗、未知のトピック ID の拒否、QoS 2 の重複受信、ゲートウェイからの DISCONNECT、接続の拒否、ゲートウェイ探索 | host のみ |
+| `client_interop/` | `TinyMQClient`(3.1.1 / 3.1)をシリアルのコマンドで動かす。mosquitto 相手に QoS 0 / 1 / 2 の送受信と QoS の引き下げ、retain、購読解除、will(DISCONNECT では出ない / 切断で出る)、永続セッション、keepalive、受信バッファより大きいメッセージの読み捨て、MQTT 3.1、ユーザ名とパスワード。スクリプトで動かす偽ブローカー相手に、再接続後の QoS 1 の再送(DUP)と PUBREL の再送、セッションがないときは再送しないこと、QoS 2 の重複受信、PINGRESP が来ないときの切断、接続の拒否 | host / esp32 / esp32s3 / picow |
+| `broker_interop/` | `TinyMQBroker` + `TinyMQTcpListener<WiFiServer>` をシリアルのコマンドで動かし、paho-mqtt と生ソケットのクライアントから接続。QoS 0 / 1 / 2 と重なる購読(最大の QoS で 1 回)、最大 QoS の制限、ワイルドカードと `$` トピック、retain(転送時はフラグを落とす、同じフィルタの再購読で再送、空で削除)、will(切断・keepalive 切れで出る / DISCONNECT では出ない)、永続セッション(QoS 0 は保持しない)、同じ Client ID の乗っ取り、再接続後の DUP 付き再送と PUBREL の再送、QoS 2 の重複受信、認証、トピックごとの認可、ローカルクライアント、購読解除、プロトコル違反(CONNECT 前のパケット、未知のレベル、空の Client ID、2 回目の CONNECT、予約フラグ、大きすぎるパケット、CONNECT の待ち時間切れ)、MQTT 3.1、接続数の上限、ペイロードの長さ、最後に全部が解放されたことの確認。同じ DUT で MQTT-SN ゲートウェイ(`TinyMQSnListener`)も Python 製の MQTT-SN クライアント(`helpers/sn_peer.py`)から試す(`sn_scenarios.py`): QoS 0 / 1 / 2 の送受信と TCP 側との相互の配送、トピック名の登録、ワイルドカード購読でゲートウェイから REGISTER、短いトピック名、事前定義トピック、未知のトピック ID、接続なしの QoS -1、will(WILLTOPIC / WILLMSG のやり取り、WILLTOPICUPD / WILLMSGUPD、keepalive 切れで出る)、keepalive、スリープ(眠っている間のメッセージを起床時に配送して PINGRESP)、UDP での再送(DUP)と応答しないクライアントの切断、QoS 2 の重複受信、永続セッション、CONNECT の再送、SEARCHGW | host / esp32 / esp32s3 / picow |
+| `sn_client_interop/` | `TinyMQClientSn` をシリアルのコマンドで動かす。同じスケッチの中で動くブローカーのゲートウェイと実際の UDP ソケットでつなぎ(待っている間は `onIdle()` でブローカーを回す)、paho-mqtt で TCP 側から確かめる: 接続なしの QoS -1、QoS 0 / 1 / 2 の送信(登録は自動)、retain、事前定義と短いトピック名、購読(ワイルドカードでゲートウェイから REGISTER)、will と keepalive 切れ、スリープと起床時の受信、スリープからの CONNECT。スクリプトで動かす偽ゲートウェイ相手に、DUP 付きの再送、「不正なトピック ID」での登録し直し、応答がないときの失敗、未知のトピック ID の拒否、QoS 2 の重複受信、ゲートウェイからの DISCONNECT、接続の拒否、ゲートウェイ探索 | host / esp32 / esp32s3 / picow |
 | `pool/` | メッセージプールの確保・解放・結合・枯渇・アライメント、2 万回のランダムな確保と解放、参照カウント付きメッセージ | 同上 |
 
 ## 実機で動かす
 
-`.env.example` を `.env` にコピーし、シリアルポートと Wi-Fi を書きます。
+`.env.example` を `.env` にコピーし、シリアルポートと Wi-Fi を書きます。Wi-Fi は `build_config.toml` 経由で `WIFI_SSID` / `WIFI_PASSWORD` としてスケッチに渡ります。
 
 ```sh
-uv run --env-file .env pytest smoke --profile esp32 -s
+uv run --env-file .env pytest smoke codec topic pool sn_codec --profiles=esp32,esp32s3
+uv run --env-file .env pytest broker_interop client_interop sn_client_interop --profile esp32 -s
+uv run --env-file .env pytest --profiles=all -rs     # host とつないだすべてのボード
 ```
+
+`client_interop` / `broker_interop` / `sn_client_interop` は host と Wi-Fi のボード(esp32 / esp32s3 / picow)で同じシナリオを流します。スケッチは Wi-Fi につないで `READY <IP>` を出し、テストはそれを見て相手を決めます。
+
+- `broker_interop`: ボードがブローカー(TCP 1883、MQTT-SN 1884)。PC の paho-mqtt / 生ソケット / MQTT-SN ピアがボードの IP へつなぐ
+- `client_interop`: PC の mosquitto と偽ブローカーが全アドレスで待ち、ボードが PC のアドレス(ボードへの経路から求める)へつなぐ
+- `sn_client_interop`: ボードの中でブローカー・ゲートウェイ・MQTT-SN クライアントが動き、クライアントはループバック(127.0.0.1)でゲートウェイへつなぐ。偽ゲートウェイは PC で動く
+
+PC とボードが同じネットワークにいて、互いに届く必要があります(PC のファイアウォールで mosquitto のポートを塞がないこと)。
+
+各テストの前に `output/` を消すのは、`pyproject.toml` の `arduino_reset_dirs` で行います。

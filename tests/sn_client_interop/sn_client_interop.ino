@@ -14,8 +14,9 @@
 // Events printed:
 //   MSG <topic or -> <id> <type> <qos> <retain> <dup> <payload>
 
-#include <WiFi.h>
 #include <TinyMQ.h>
+
+#include "board_net.h"
 
 WiFiServer server;
 TinyMQTcpListener<WiFiServer> listener(server);
@@ -181,7 +182,8 @@ static void command(char *line)
 void setup()
 {
     Serial.begin(115200);
-    delay(2000);
+    if (!networkReady())
+        return;
     broker.begin();
     broker.addListener(listener);
     broker.addListener(gateway);
@@ -191,7 +193,6 @@ void setup()
     sn.setClientId(g_id);
     sn.onMessage(onMessage);
     sn.onIdle(runBroker);
-    Serial.println("READY");
 }
 
 void loop()

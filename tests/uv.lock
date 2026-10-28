@@ -460,7 +460,7 @@ requires-dist = [
     { name = "paho-mqtt", specifier = ">=2.1" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-embedded", specifier = ">=2.0" },
-    { name = "pytest-embedded-arduino-cli", specifier = ">=1.1" },
+    { name = "pytest-embedded-arduino-cli", specifier = ">=1.10" },
     { name = "pytest-embedded-serial", specifier = ">=2.0" },
     { name = "pytest-html", specifier = ">=4.1.1" },
 ]

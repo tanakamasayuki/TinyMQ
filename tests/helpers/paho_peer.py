@@ -6,13 +6,15 @@ import time
 
 import paho.mqtt.client as mqtt
 
+from helpers import target
+
 
 class PahoPeer:
-    def __init__(self, port, client_id="pc", protocol=mqtt.MQTTv311, clean_session=True, host="127.0.0.1"):
+    def __init__(self, port, client_id="pc", protocol=mqtt.MQTTv311, clean_session=True, host=None):
         self.messages = queue.Queue()
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, protocol=protocol, clean_session=clean_session)
         self.client.on_message = lambda c, u, m: self.messages.put(m)
-        self.client.connect(host, port, keepalive=30)
+        self.client.connect(host or target.HOST, port, keepalive=30)
         self.client.loop_start()
         deadline = time.time() + 5
         while not self.client.is_connected():

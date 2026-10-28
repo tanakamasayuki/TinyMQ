@@ -15,6 +15,7 @@ from helpers import fake_broker as fb
 from helpers.line_dut import LineDut
 from helpers.mosquitto import make_password_file, mosquitto
 from helpers.paho_peer import PahoPeer
+from helpers import target
 
 OUTPUT = Path(__file__).parent / "output"
 
@@ -71,7 +72,7 @@ class Dut(LineDut):
 
     def reset(self, port, client_id="tinymq", clean=True, keepalive=60, proto=4):
         self.backlog.clear()
-        self.send(f"SERVER 127.0.0.1 {port}")
+        self.send(f"SERVER {self.server} {port}")
         self.send(f"ID {client_id}")
         self.send(f"CLEAN {1 if clean else 0}")
         self.send(f"KEEPALIVE {keepalive}")
@@ -224,7 +225,7 @@ def scenario_mqtt31(d, port):
 def scenario_auth(d):
     pw = OUTPUT / "passwd"
     make_password_file(pw, {"alice": "secret"})
-    with mosquitto(OUTPUT, extra_conf=f"password_file {pw}", allow_anonymous=False) as (port, _):
+    with mosquitto(OUTPUT, extra_conf=f"password_file {pw}", allow_anonymous=False, bind=d.bind) as (port, _):
         d.reset(port)
         reason, _ = d.connect(ok=False)
         assert reason in (0x86, 0x87), hex(reason)
@@ -241,7 +242,7 @@ def scenario_auth(d):
 
 def scenario_resend(d):
     """Unacknowledged QoS 1 / 2 messages are resent after reconnecting with a session."""
-    fake = fb.FakeBroker()
+    fake = fb.FakeBroker(d.bind)
     try:
         d.reset(fake.port, client_id="tm-resend", clean=False)
         d.send("CONNECT")
@@ -301,7 +302,7 @@ def scenario_resend(d):
 
 def scenario_qos2_in(d):
     """An incoming QoS 2 message resent before PUBREL is delivered once."""
-    fake = fb.FakeBroker()
+    fake = fb.FakeBroker(d.bind)
     try:
         d.reset(fake.port)
         d.send("CONNECT")
@@ -327,7 +328,7 @@ def scenario_qos2_in(d):
 
 def scenario_ping_timeout(d):
     """No PINGRESP within the keep alive closes the connection."""
-    fake = fb.FakeBroker()
+    fake = fb.FakeBroker(d.bind)
     try:
         d.reset(fake.port, keepalive=1)
         d.send("CONNECT")
@@ -343,7 +344,7 @@ def scenario_ping_timeout(d):
 
 
 def scenario_refused(d):
-    fake = fb.FakeBroker()
+    fake = fb.FakeBroker(d.bind)
     try:
         d.reset(fake.port)
         d.send("CONNECT")
@@ -358,7 +359,9 @@ def scenario_refused(d):
 
 def test_client_interop(dut, record_property):
     d = Dut(dut)
-    d.expect("^READY", timeout=30)
+    ip = d.ready()
+    d.server = target.pc_address_for(ip)  # mosquitto and the fake broker run on the PC
+    d.bind = target.bind_address_for(ip)
     results = {}
 
     def run(name, fn, *args):
@@ -371,7 +374,7 @@ def test_client_interop(dut, record_property):
         print(f"SCENARIO {results[name].split()[0]} {name} {results[name][4:]}")
         record_property(f"scenario_{name}", results[name])
 
-    with mosquitto(OUTPUT) as (port, log_path):
+    with mosquitto(OUTPUT, bind=d.bind) as (port, log_path):
         run("pubsub", scenario_pubsub, port)
         run("retain_unsubscribe", scenario_retain_unsubscribe, port)
         run("will", scenario_will, port)

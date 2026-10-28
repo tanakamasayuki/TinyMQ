@@ -3,6 +3,8 @@
 import socket
 import struct
 
+from helpers import target
+
 ADVERTISE, SEARCHGW, GWINFO = 0x00, 0x01, 0x02
 CONNECT, CONNACK = 0x04, 0x05
 WILLTOPICREQ, WILLTOPIC, WILLMSGREQ, WILLMSG = 0x06, 0x07, 0x08, 0x09
@@ -38,10 +40,10 @@ def short_id(name):
 
 
 class SnPeer:
-    def __init__(self, port, host="127.0.0.1", timeout=5):
-        self.addr = (host, port)
+    def __init__(self, port, host=None, timeout=5):
+        self.addr = (host or target.HOST, port)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(("127.0.0.1", 0))
+        self.sock.bind((target.bind_address_for(self.addr[0]), 0))
         self.sock.settimeout(timeout)
         self.msg_id = 0
         self.topics = {}  # topic id -> name, from REGISTER / REGACK / SUBACK

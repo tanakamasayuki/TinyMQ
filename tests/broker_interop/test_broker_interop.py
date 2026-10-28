@@ -14,6 +14,7 @@ import time
 import paho.mqtt.client as mqtt
 
 from helpers import mqtt_packets as mp
+from helpers import target
 from helpers.line_dut import LineDut
 from helpers.mosquitto import free_port
 from helpers.paho_peer import PahoPeer
@@ -461,9 +462,12 @@ def scenario_clean_state(d, port):
 
 def test_broker_interop(dut, record_property):
     d = Dut(dut)
-    d.expect("^READY", timeout=30)
-    port = free_port()
-    sn_port = free_udp_port()
+    ip = d.ready()
+    if target.is_local(ip):
+        port, sn_port = free_port(), free_udp_port()
+    else:
+        port, sn_port = 1883, 1884  # a board: the peers connect to its address
+        target.HOST = ip
     d.send(f"LISTEN {port} {sn_port}")
     d.expect(rf"^LISTENING {port}")
     results = {}
@@ -500,6 +504,7 @@ def test_broker_interop(dut, record_property):
     for name, fn in SN_SCENARIOS:
         run(name, lambda d, port, fn=fn: fn(d, port, sn_port))
     run("clean_state", scenario_clean_state)
+    target.HOST = "127.0.0.1"
 
     failed = {k: v for k, v in results.items() if v != "PASS"}
     assert not failed, failed

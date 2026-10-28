@@ -14,8 +14,9 @@
 //   PUBDONE <id> <reason>  MSG <qos> <retain> <dup> <topic> <len> <payload>
 //   CLOSED <reason>  STATUS connected=<0|1> inflight=<n> dropped=<n>
 
-#include <WiFi.h>
 #include <TinyMQ.h>
+
+#include "board_net.h"
 
 WiFiClient net;
 TinyMQClient mqtt(net);
@@ -178,13 +179,13 @@ static void command(char *line)
 void setup()
 {
     Serial.begin(115200);
-    delay(2000);
+    if (!networkReady())
+        return;
     mqtt.onMessage(onMessage);
     mqtt.onConnect(onConnack);
     mqtt.onSubscribe(onSuback);
     mqtt.onPublished(onPublished);
     mqtt.onDisconnect(onClosed);
-    Serial.println("READY");
 }
 
 void loop()

@@ -3,6 +3,8 @@
 import socket
 import struct
 
+from helpers import target
+
 
 def encode_length(n):
     out = bytearray()
@@ -148,8 +150,8 @@ class PacketSocket:
 class RawClient(PacketSocket):
     """A hand-driven MQTT client."""
 
-    def __init__(self, port, host="127.0.0.1", timeout=5):
-        super().__init__(socket.create_connection((host, port), timeout=timeout), timeout)
+    def __init__(self, port, host=None, timeout=5):
+        super().__init__(socket.create_connection((host or target.HOST, port), timeout=timeout), timeout)
 
     def connect(self, client_id, expect_code=0, **kwargs):
         """Sends CONNECT and returns session present."""

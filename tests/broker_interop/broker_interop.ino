@@ -10,8 +10,9 @@
 //   LISTENING <port>   CLIENT <id> <1|0>   LOCAL <qos> <retain> <topic> <payload>
 //   STATS clients=<n> sessions=<n> subs=<n> retained=<n> pool=<used>/<capacity> dropped=<n>
 
-#include <WiFi.h>
 #include <TinyMQ.h>
+
+#include "board_net.h"
 
 WiFiServer server;
 TinyMQTcpListener<WiFiServer> listener(server);
@@ -139,7 +140,8 @@ static void command(char *line)
 void setup()
 {
     Serial.begin(115200);
-    delay(2000);
+    if (!networkReady())
+        return;
     broker.begin();
     broker.addListener(listener);
     broker.addListener(sn);
@@ -147,7 +149,6 @@ void setup()
     sn.addPredefinedTopic(2, "pre/two");
     broker.onMessage(onLocal);
     broker.onClient(onClient);
-    Serial.println("READY");
 }
 
 void loop()
