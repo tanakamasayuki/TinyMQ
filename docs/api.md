@@ -127,6 +127,7 @@ An MQTT broker. Register listeners and call `update()` from `loop()`.
 | `setMaxQos(uint8_t qos)` | highest QoS granted to subscribers (default 2). Incoming QoS 2 is always accepted |
 | `setConnectTimeout(uint32_t ms)` | how long to wait from connecting to CONNECT (default 10 s) |
 | `setRetainAvailable(bool on)` | false keeps no retained messages |
+| `setSysInterval(uint32_t seconds)` | interval for publishing the state, retained, under `$SYS/broker/...`. 0 (default) publishes nothing and deletes what was published |
 | `setSessionExpiry(uint32_t seconds)` | upper limit on how long a session outlives its connection. 0 (default) is no limit (when the session table is full, the oldest are dropped) |
 | `onAuthenticate(uint8_t (*)(const tinymq::ConnectInfo &, void *))` | Authentication. `kSuccess` accepts; any other reason code refuses |
 | `onAuthorize(bool (*)(Bytes clientId, Bytes username, Bytes topic, bool subscribe, void *))` | whether publish / subscribe is allowed per topic |
@@ -150,7 +151,7 @@ An MQTT broker. Register listeners and call `update()` from `loop()`.
 
 ### State
 
-`clients()` (number connected), `sessions()` (including disconnected persistent sessions), `subscriptions()`, `retained()`, `poolUsed()` / `poolCapacity()`, `droppedMessages()` (number dropped because a queue or the pool was full), `engine()` (`tinymq::Broker`).
+`clients()` (number connected), `sessions()` (including disconnected persistent sessions), `subscriptions()`, `retained()`, `poolUsed()` / `poolCapacity()`, `droppedMessages()` (number dropped because a queue or the pool was full), `receivedMessages()` / `sentMessages()`, `engine()` (`tinymq::Broker`).
 
 ## TinyMQTcpListener
 

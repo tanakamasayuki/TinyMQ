@@ -74,6 +74,10 @@ public:
     // 3.1.1 persistent sessions take this). 0 (default): no limit, kept
     // until evicted for a new session.
     void setSessionExpiry(uint32_t seconds) { sessionExpiry_ = seconds; }
+    // Publishes the broker's state under $SYS/broker/ (retained) every
+    // `seconds`, like mosquitto. 0 (default): off, and the $SYS messages
+    // already retained are deleted.
+    void setSysInterval(uint32_t seconds);
     void onAuthenticate(AuthHandler h, void *context = nullptr) { onAuth_ = h; onAuthCtx_ = context; }
     void onAuthorize(AclHandler h, void *context = nullptr) { onAcl_ = h; onAclCtx_ = context; }
     void onClient(ClientHandler h, void *context = nullptr) { onClient_ = h; onClientCtx_ = context; }
@@ -134,6 +138,8 @@ public:
     size_t poolUsed() const { return pool_.used(); }
     size_t poolCapacity() const { return pool_.capacity(); }
     uint32_t droppedMessages() const { return dropped_; }  // queue full, pool full or no room for a retained message
+    uint32_t receivedMessages() const { return received_; }  // PUBLISH from clients
+    uint32_t sentMessages() const { return sent_; }          // PUBLISH to clients
 
 private:
     enum ConnState : uint8_t { kFree, kWaitConnect, kActive };
@@ -234,6 +240,7 @@ private:
     void detachSession(int s);
     void publishWill(int s);
     void tick(uint32_t now);
+    void publishSys();
     uint16_t nextPacketId(Session &ss);
     bool qos2Known(const Session &ss, uint16_t id) const;
     void enqueue(int s, uint32_t msg, uint8_t qos, bool retain, uint32_t subId = 0);
@@ -281,6 +288,10 @@ private:
     uint32_t sessionExpiry_ = 0;
     uint32_t generatedIds_ = 0;
     uint32_t dropped_ = 0;
+    uint32_t received_ = 0;
+    uint32_t sent_ = 0;
+    uint32_t sysInterval_ = 0;
+    uint32_t sysLast_ = 0;
     uint8_t maxQos_ = TINYMQ_ENABLE_QOS2_DELIVERY ? 2 : 1;
     bool retainAvailable_ = true;
     bool pendingFlush_ = false;

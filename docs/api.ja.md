@@ -127,6 +127,7 @@ MQTT ブローカー。受け口(listener)を登録し、`loop()` から `update
 | `setMaxQos(uint8_t qos)` | 購読者に許す最大の QoS(既定 2)。受信の QoS 2 は常に受け付ける |
 | `setConnectTimeout(uint32_t ms)` | 接続から CONNECT までの待ち時間(既定 10 秒) |
 | `setRetainAvailable(bool on)` | false で retain を保持しない |
+| `setSysInterval(uint32_t seconds)` | `$SYS/broker/...` に状態を retain で出す間隔。0(既定)で出さず、出したものを消す |
 | `setSessionExpiry(uint32_t seconds)` | セッションが接続より長く残る上限。0(既定)は上限なし(セッション表が埋まったら古いものから捨てる) |
 | `onAuthenticate(uint8_t (*)(const tinymq::ConnectInfo &, void *))` | 認証。`kSuccess` で受け入れ、ほかの理由コードで拒否 |
 | `onAuthorize(bool (*)(Bytes clientId, Bytes username, Bytes topic, bool subscribe, void *))` | トピックごとの publish / subscribe の可否 |
@@ -150,7 +151,7 @@ MQTT ブローカー。受け口(listener)を登録し、`loop()` から `update
 
 ### 状態
 
-`clients()`(つながっている数)、`sessions()`(切断中の永続セッションを含む)、`subscriptions()`、`retained()`、`poolUsed()` / `poolCapacity()`、`droppedMessages()`(キューやプールが一杯で捨てた数)、`engine()`(`tinymq::Broker`)。
+`clients()`(つながっている数)、`sessions()`(切断中の永続セッションを含む)、`subscriptions()`、`retained()`、`poolUsed()` / `poolCapacity()`、`droppedMessages()`(キューやプールが一杯で捨てた数)、`receivedMessages()` / `sentMessages()`、`engine()`(`tinymq::Broker`)。
 
 ## TinyMQTcpListener
 

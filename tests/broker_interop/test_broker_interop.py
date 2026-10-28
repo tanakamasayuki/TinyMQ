@@ -515,6 +515,40 @@ def scenario_persistence(d, port):
             a.close()
 
 
+def scenario_sys(d, port):
+    """$SYS/broker/... topics, retained, refreshed every interval, removed when turned off."""
+    a = peer(port, "sys-a")
+    try:
+        a.publish("sysx/r", "one", qos=1, retain=True)
+        d.setting("SYS 1")
+        a.subscribe("$SYS/#", 0)
+        got = {}
+        deadline = time.time() + 5
+        while len(got) < 11 and time.time() < deadline:
+            m = a.expect(timeout=3)
+            got[m.topic] = m.payload.decode()
+        assert got["$SYS/broker/version"].startswith("TinyMQ "), got
+        assert int(got["$SYS/broker/clients/connected"]) >= 1, got
+        assert int(got["$SYS/broker/retained messages/count"]) >= 1, got
+        assert int(got["$SYS/broker/messages/received"]) >= 1, got
+        assert int(got["$SYS/broker/pool/size"]) > 0, got
+        # "#" does not see them, and clients cannot publish there
+        b = peer(port, "sys-b")
+        b.subscribe("#", 0)
+        assert b.expect().topic == "sysx/r"
+        b.expect_none(1.5)
+        b.close()
+        d.setting("SYS 0")
+        c = peer(port, "sys-c")
+        c.subscribe("$SYS/#", 0)
+        c.expect_none(0.5)
+        c.close()
+    finally:
+        d.setting("SYS 0")
+        a.publish("sysx/r", "", qos=1, retain=True)
+        a.close()
+
+
 def scenario_clean_state(d, port):
     """Everything the scenarios left was freed: no clients, sessions, subscriptions or pool bytes."""
     d.wait_clients(0)
@@ -567,6 +601,7 @@ def test_broker_interop(dut, record_property):
     for name, fn in TCP_SCENARIOS + V5_SCENARIOS:
         run(name, fn)
     run("persistence", scenario_persistence)
+    run("sys", scenario_sys)
     if lwip:
         # the TCP scenarios again, through TinyMQLwipListener
         for name, fn in TCP_SCENARIOS + V5_SCENARIOS:

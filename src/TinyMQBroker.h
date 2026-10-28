@@ -34,6 +34,7 @@ public:
     void setConnectTimeout(uint32_t ms) { engine_.setConnectTimeout(ms); }
     void setRetainAvailable(bool on) { engine_.setRetainAvailable(on); }
     void setSessionExpiry(uint32_t seconds) { engine_.setSessionExpiry(seconds); }
+    void setSysInterval(uint32_t seconds) { engine_.setSysInterval(seconds); }  // $SYS/broker/... every `seconds` (0: off)
     void onAuthenticate(AuthHandler h, void *context = nullptr) { engine_.onAuthenticate(h, context); }
     void onAuthorize(AclHandler h, void *context = nullptr) { engine_.onAuthorize(h, context); }
     void onClient(ClientHandler h, void *context = nullptr) { engine_.onClient(h, context); }

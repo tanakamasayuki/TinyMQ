@@ -2,6 +2,7 @@
 // interop tests with paho-mqtt and raw sockets (test_broker_interop.py).
 //
 // Commands (one per line):
+//   SYS <s> ($SYS interval, 0: off)
 //   LISTEN <tcp port> [<MQTT-SN udp port>]   (boards also listen on lwIP's raw API, port 1885)   SNRETRY <ms> <count>   MAXQOS <0-2>   EXPIRY <s>   CTIMEOUT <ms>
 //   AUTH <0|1>  (user alice / password secret)          ACL <0|1>  (deny "secret/...")
 //   LSUB <qos> <filter>   LUNSUB <filter>   LPUB <qos> <retain> <topic> <payload>
@@ -129,6 +130,8 @@ static void command(char *line)
         broker.setMaxQos((uint8_t)atoi(nextWord(&s)));
     } else if (!strcmp(cmd, "CTIMEOUT")) {
         broker.setConnectTimeout((uint32_t)atol(nextWord(&s)));
+    } else if (!strcmp(cmd, "SYS")) {
+        broker.setSysInterval((uint32_t)atol(nextWord(&s)));
     } else if (!strcmp(cmd, "EXPIRY")) {
         broker.setSessionExpiry((uint32_t)atol(nextWord(&s)));
     } else if (!strcmp(cmd, "AUTH")) {
@@ -181,7 +184,7 @@ static void command(char *line)
         Serial.println(cmd);
         return;
     }
-    if (!strcmp(cmd, "MAXQOS") || !strcmp(cmd, "SNRETRY") || !strcmp(cmd, "CTIMEOUT") || !strcmp(cmd, "EXPIRY") || !strcmp(cmd, "AUTH") || !strcmp(cmd, "ACL")) {
+    if (!strcmp(cmd, "MAXQOS") || !strcmp(cmd, "SYS") || !strcmp(cmd, "SNRETRY") || !strcmp(cmd, "CTIMEOUT") || !strcmp(cmd, "EXPIRY") || !strcmp(cmd, "AUTH") || !strcmp(cmd, "ACL")) {
         Serial.print("OK ");
         Serial.println(cmd);
     }

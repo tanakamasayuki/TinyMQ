@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "mq_topic.h"
+#include "../tinymq_version.h"
 
 namespace tinymq {
 
@@ -74,6 +75,53 @@ void Broker::end()
         store_.release(r);
         r = Pool::kNull;
     }
+}
+
+void Broker::setSysInterval(uint32_t seconds)
+{
+    sysInterval_ = seconds;
+    sysLast_ = seconds_ - seconds;  // the first ones go out at the next poll()
+    if (seconds)
+        return;
+    for (uint32_t &r : retained_) {
+        if (r == Pool::kNull)
+            continue;
+        Bytes t = store_.topic(r);
+        if (t.len >= 5 && memcmp(t.data, "$SYS/", 5) == 0) {
+            store_.release(r);
+            r = Pool::kNull;
+        }
+    }
+}
+
+void Broker::publishSys()
+{
+    struct Item {
+        const char *topic;
+        uint32_t value;
+    };
+    size_t sysRetained = 0;
+    for (uint32_t r : retained_)
+        if (r != Pool::kNull && store_.topic(r).len >= 5 && memcmp(store_.topic(r).data, "$SYS/", 5) == 0)
+            ++sysRetained;
+    const Item items[] = {
+        {"$SYS/broker/uptime", seconds_ - 1},
+        {"$SYS/broker/clients/connected", (uint32_t)clients()},
+        {"$SYS/broker/clients/total", (uint32_t)sessions()},
+        {"$SYS/broker/subscriptions/count", (uint32_t)subscriptions()},
+        {"$SYS/broker/retained messages/count", (uint32_t)(retained() - sysRetained)},
+        {"$SYS/broker/messages/received", received_},
+        {"$SYS/broker/messages/sent", sent_},
+        {"$SYS/broker/messages/dropped", dropped_},
+        {"$SYS/broker/pool/used", (uint32_t)pool_.used()},
+        {"$SYS/broker/pool/size", (uint32_t)pool_.capacity()},
+    };
+    char text[24];
+    for (const Item &i : items) {
+        snprintf(text, sizeof(text), "%lu", (unsigned long)i.value);
+        deliver(kLocal, Bytes(i.topic), Bytes(text), 0, true);
+    }
+    deliver(kLocal, Bytes("$SYS/broker/version"), Bytes("TinyMQ " TINYMQ_VERSION_STR), 0, true);
 }
 
 void Broker::setMaxQos(uint8_t qos)
@@ -191,6 +239,11 @@ void Broker::poll(uint32_t now)
         }
     }
     reapBroken();
+    if (sysInterval_ && seconds_ - sysLast_ >= sysInterval_) {
+        sysLast_ = seconds_;
+        publishSys();
+        reapBroken();
+    }
     if (pendingFlush_) {
         pendingFlush_ = false;
         for (int s = 0; s < TINYMQ_BROKER_MAX_SESSIONS; ++s)
@@ -423,6 +476,9 @@ bool Broker::saveState(StateSink &sink)
     for (uint32_t r : retained_) {
         if (r == Pool::kNull || expired(r))
             continue;
+        Bytes t = store_.topic(r);
+        if (t.len >= 5 && memcmp(t.data, "$SYS/", 5) == 0)
+            continue;  // made afresh
         if (!putU8(sink, 'R') || !saveMessage(sink, r, store_.qos(r), true, 0))
             return false;
     }
@@ -875,6 +931,7 @@ void Broker::handlePublish(int conn, const FixedHeader &h, const uint8_t *body, 
         return;
     }
     Session &ss = sessions_[c.session];
+    ++received_;
     if (p.qos == 2) {
         if (qos2Known(ss, p.packetId)) {
             sendAck(conn, PacketType::Pubrec, p.packetId);  // a resend: delivered already
@@ -1238,12 +1295,17 @@ int Broker::sendPublish(int conn, const Entry &e, bool dup)
     if (head == 0 || head + p.payload.len > c.maxPacket)
         return 1;  // the client could not take it: as if delivered
     size_t len = p.payload.len;
+    bool ok;
     if (head + len <= sizeof(tx_)) {
         if (len)
             memcpy(tx_ + head, p.payload.data, len);
-        return send(conn, tx_, head + len) ? 0 : -1;
+        ok = send(conn, tx_, head + len);
+    } else {
+        ok = send(conn, tx_, head) && send(conn, p.payload.data, len);
     }
-    return send(conn, tx_, head) && send(conn, p.payload.data, len) ? 0 : -1;
+    if (ok)
+        ++sent_;
+    return ok ? 0 : -1;
 }
 
 uint8_t Broker::inflightLimit(int conn) const

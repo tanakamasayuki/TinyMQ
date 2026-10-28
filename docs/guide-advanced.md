@@ -235,6 +235,7 @@ broker.onAuthorize(onAcl);
 | `TinyMQBroker::droppedMessages()` | Messages dropped because a queue, the pool or the retained table was full |
 | `TinyMQBroker::poolUsed()` / `poolCapacity()` | Message pool usage |
 | `clients()` / `sessions()` / `subscriptions()` / `retained()` | How full the tables are |
+| `$SYS/broker/...` | `broker.setSysInterval(10)` publishes, retained, every 10 s: uptime, connections, sessions, subscriptions, retained messages, messages received / sent / dropped, pool use (the same names as mosquitto). Takes 11 retained slots |
 | `TinyMQBridge::dropped()` | Messages dropped while upstream was down |
 | `TinyMQClientSn::lastReturnCode()` | MQTT-SN return code |
 
@@ -244,4 +245,3 @@ broker.onAuthorize(onAcl);
 - MQTT 5.0 enhanced authentication (AUTH), TLS on the broker side, WebSocket and MQTT-SN 2.0 are out of scope
 - The bridge does not store messages while upstream is down
 - The broker does not use topic aliases itself (it only accepts them)
-- There are no `$SYS` topics yet

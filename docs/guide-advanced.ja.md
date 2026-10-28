@@ -235,6 +235,7 @@ broker.onAuthorize(onAcl);
 | `TinyMQBroker::droppedMessages()` | キュー、プール、retain の表が一杯で捨てた数 |
 | `TinyMQBroker::poolUsed()` / `poolCapacity()` | メッセージプールの使用量 |
 | `clients()` / `sessions()` / `subscriptions()` / `retained()` | 表の埋まり具合 |
+| `$SYS/broker/...` | `broker.setSysInterval(10)` で、稼働時間、接続数、セッション数、購読数、retain の数、受信・送信・破棄したメッセージ数、プールの使用量を 10 秒ごとに retain で出す(mosquitto と同じ名前)。retain の枠を 11 使う |
 | `TinyMQBridge::dropped()` | 上流が落ちていて捨てた数 |
 | `TinyMQClientSn::lastReturnCode()` | MQTT-SN の戻りコード |
 
@@ -244,4 +245,3 @@ broker.onAuthorize(onAcl);
 - MQTT 5.0 の拡張認証(AUTH)、ブローカー側の TLS、WebSocket、MQTT-SN 2.0 は対象外
 - ブリッジは、上流が落ちている間のメッセージを貯めません
 - ブローカーはトピックエイリアスを自分からは使いません(受けるだけ)
-- `$SYS` トピックはまだありません

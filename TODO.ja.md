@@ -26,7 +26,7 @@ SPEC §7 の順に進める。
 - [x] Phase 2: `TinyMQClient`(3.1.1 / 3.1)と mosquitto・偽ブローカーとの相互接続。プロトコルの処理は `tinymq::ClientEngine`(Arduino 非依存)、`TinyMQClient` は `Client&` のアダプタ
 - [x] Phase 3: `TinyMQBroker`(3.1.1 / 3.1)+ `TinyMQTcpListener`、ローカルクライアント、認証・認可のコールバック、paho-mqtt と生ソケットでの試験
   - [ ] Eclipse paho.mqtt.testing の相互接続試験スイートを当てる。仕組み(`broker_conformance/`、`tools/fetch_paho_testing.sh`、`helpers/run_paho_suite.py`)はできたが、外部のコードの実行が自動モードで止められたので未実行。`TINYMQ_RUN_PAHO_TESTING=1 uv run pytest broker_conformance -s` で動かす
-  - [ ] `$SYS` トピック
+  - [x] `$SYS` トピック(`setSysInterval()`、mosquitto に合わせた `$SYS/broker/...`、既定は出さない)
   - [ ] 書き込みが詰まったときの扱い(今は Arduino の `Client::write()` がブロックする前提。lwIP 版の受け口で `writable()` を使う)
 - [ ] Phase 4: MQTT-SN
   - [x] コーデック(`tinymq::sn`)と単体テスト

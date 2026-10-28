@@ -1,6 +1,8 @@
 # Changelog / 変更履歴
 
 ## Unreleased
+- (EN) $SYS/broker/... topics (setSysInterval(), off by default) and message counters in the broker.
+- (JA) ブローカーの $SYS/broker/... トピック(setSysInterval()、既定は出さない)とメッセージの数。
 - (EN) README, beginner's and advanced guides, API reference (English and Japanese), six examples with READMEs, keywords.txt.
 - (JA) README、初心者ガイド、上級者ガイド、API リファレンス(日英)、README 付きのサンプル 6 本、keywords.txt。
 - (EN) Specification (SPEC.md) and project skeleton.
