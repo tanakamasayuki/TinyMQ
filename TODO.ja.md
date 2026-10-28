@@ -4,7 +4,7 @@
 
 ## 現状
 
-- Phase 0(雛形)、Phase 1(core: コーデック、トピック、メッセージプール)、Phase 2(`TinyMQClient` の 3.1.1)まで済み。host で単体テストと mosquitto との相互接続テストが通り、ESP32 / Pico W / CH32V307 でビルドが通る
+- Phase 0(雛形)、Phase 1(core: コーデック、トピック、メッセージプール)、Phase 2(`TinyMQClient` の 3.1.1)、Phase 3 の大部分(`TinyMQBroker` の 3.1.1)まで済み。host で単体テスト、mosquitto との相互接続、paho-mqtt / 生ソケットからブローカーへの相互接続テストが通る。ESP32 / Pico W でビルドが通る(CH32V307 は smoke のビルドのみ)
 - 決まったこと(詳細は SPEC)
   - クライアントとブローカーを 1 つのライブラリに入れ、使う側だけを選ぶ
   - TCP は MQTT 3.1.1 / 5.0。ブローカーはなるべく仕様の全体を実装し、設定で軽くできるようにする
@@ -21,7 +21,10 @@ SPEC §7 の順に進める。
 - [x] Phase 0: 雛形(`library.properties`、`src/`、`tests/`、`tools/bump_version.py`、`.github/workflows/release.yml` をリリースツールキットから)
 - [x] Phase 1: core(3.1.1 / 5.0 のコーデック、トピック照合、メッセージプール)と host の単体テスト。5.0 のプロパティは生のまま保持するところまで(解釈は Phase 6)。購読表はセッションと一緒に Phase 3 で作る
 - [x] Phase 2: `TinyMQClient`(3.1.1 / 3.1)と mosquitto・偽ブローカーとの相互接続。プロトコルの処理は `tinymq::ClientEngine`(Arduino 非依存)、`TinyMQClient` は `Client&` のアダプタ
-- [ ] Phase 3: `TinyMQBroker`(3.1.1)+ `TinyMQTcpListener`、ローカルクライアント、paho-mqtt と paho.mqtt.testing
+- [x] Phase 3: `TinyMQBroker`(3.1.1 / 3.1)+ `TinyMQTcpListener`、ローカルクライアント、認証・認可のコールバック、paho-mqtt と生ソケットでの試験
+  - [ ] Eclipse paho.mqtt.testing の相互接続試験スイートを当てる
+  - [ ] `$SYS` トピック
+  - [ ] 書き込みが詰まったときの扱い(今は Arduino の `Client::write()` がブロックする前提。lwIP 版の受け口で `writable()` を使う)
 - [ ] Phase 4: MQTT-SN(`TinyMQSnListener`、`TinyMQClientSn`、Python の MQTT-SN ピア)
 - [ ] Phase 5: 実機(ESP32 / ESP32-S3 / Pico W / CH32V307)、計測、TinyWG との組み合わせ
 - [ ] Phase 6: MQTT 5.0

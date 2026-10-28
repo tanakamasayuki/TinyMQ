@@ -3,9 +3,9 @@ does not produce on demand (withheld acknowledgements, dropped connections,
 duplicate deliveries, silence)."""
 
 import socket
-import struct
 
 from helpers.mosquitto import free_port
+from helpers.mqtt_packets import ack, connack, parse_publish, publish  # noqa: F401  (used through this module)
 
 
 class FakeBroker:
@@ -64,43 +64,3 @@ class FakeBroker:
         self.drop()
         self.listener.close()
 
-
-def connack(session_present=False, code=0):
-    return bytes([0x20, 0x02, 1 if session_present else 0, code])
-
-
-def ack(packet_type, packet_id):
-    first = (packet_type << 4) | (2 if packet_type == 6 else 0)
-    return bytes([first, 0x02]) + struct.pack(">H", packet_id)
-
-
-def publish(topic, payload, qos=0, packet_id=0, dup=False, retain=False):
-    body = struct.pack(">H", len(topic)) + topic.encode()
-    if qos:
-        body += struct.pack(">H", packet_id)
-    body += payload
-    first = 0x30 | (0x08 if dup else 0) | (qos << 1) | (1 if retain else 0)
-    return bytes([first]) + encode_length(len(body)) + body
-
-
-def encode_length(n):
-    out = bytearray()
-    while True:
-        b = n & 0x7F
-        n >>= 7
-        out.append(b | (0x80 if n else 0))
-        if not n:
-            return bytes(out)
-
-
-def parse_publish(first, body):
-    """Returns (topic, packet id, payload, qos, dup, retain) of a 3.1.1 PUBLISH."""
-    qos = (first >> 1) & 3
-    tlen = struct.unpack(">H", body[:2])[0]
-    topic = body[2 : 2 + tlen].decode()
-    pos = 2 + tlen
-    pid = 0
-    if qos:
-        pid = struct.unpack(">H", body[pos : pos + 2])[0]
-        pos += 2
-    return topic, pid, body[pos:], qos, bool(first & 0x08), bool(first & 0x01)

@@ -12,27 +12,6 @@
 
 namespace tinymq {
 
-class Link {
-public:
-    virtual ~Link() {}
-    // Writes all of `data` or fails (returns less).
-    virtual size_t write(const uint8_t *data, size_t len) = 0;
-    virtual void close() = 0;
-};
-
-// A received application message. `topic` is NUL-terminated; the views are
-// valid only during the callback.
-struct Message {
-    const char *topic;
-    uint16_t topicLen;
-    const uint8_t *payload;
-    size_t payloadLen;
-    uint8_t qos;
-    bool retain;
-    bool dup;
-    Bytes props;  // 5.0
-};
-
 class ClientEngine {
 public:
     enum class State : uint8_t { Disconnected, WaitConnack, Connected };

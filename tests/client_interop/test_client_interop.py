@@ -12,51 +12,15 @@ from pathlib import Path
 import paho.mqtt.client as mqtt
 
 from helpers import fake_broker as fb
+from helpers.line_dut import LineDut
 from helpers.mosquitto import make_password_file, mosquitto
 from helpers.paho_peer import PahoPeer
 
 OUTPUT = Path(__file__).parent / "output"
 
 
-class Dut:
-    """Serial command helper for client_interop.ino.
-
-    Output is read line by line; lines that do not match what is awaited are
-    kept, so an event printed earlier than expected (MSG before CONNECT ok,
-    for example) is still found by a later expect().
-    """
-
-    def __init__(self, dut):
-        self.dut = dut
-        self.backlog = []
-
-    def send(self, line):
-        self.dut.write(line + "\n")
-
-    def _next_line(self, timeout):
-        m = self.dut.expect(re.compile(rb"([^\r\n]*)\r?\n"), timeout=timeout)
-        return m.group(1).decode(errors="replace")
-
-    def expect(self, pattern, timeout=10):
-        rx = re.compile(pattern)
-        for i, line in enumerate(self.backlog):
-            m = rx.search(line)
-            if m:
-                del self.backlog[: i + 1]
-                return m
-        deadline = time.time() + timeout
-        while True:
-            remaining = deadline - time.time()
-            if remaining <= 0:
-                raise TimeoutError(f"no line matching {pattern!r}; unmatched: {self.backlog[-5:]}")
-            try:
-                line = self._next_line(remaining)
-            except Exception:
-                raise TimeoutError(f"no line matching {pattern!r}; unmatched: {self.backlog[-5:]}") from None
-            m = rx.search(line)
-            if m:
-                return m
-            self.backlog.append(line)
+class Dut(LineDut):
+    """Serial commands of client_interop.ino."""
 
     def connect(self, ok=True, timeout=15):
         """Returns (reason, session present)."""
@@ -94,11 +58,7 @@ class Dut:
         }
 
     def no_message(self, wait=1.0):
-        try:
-            m = self.expect(r"^MSG .*", timeout=wait)
-        except TimeoutError:
-            return
-        raise AssertionError(f"unexpected {m.group(0)!r}")
+        self.expect_none(r"^MSG .*", wait)
 
     def status(self):
         self.send("STATUS")
