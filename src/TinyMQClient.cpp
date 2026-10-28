@@ -63,10 +63,10 @@ bool TinyMQClient::connect(const char *clientId)
     return connect();
 }
 
-void TinyMQClient::disconnect()
+void TinyMQClient::disconnect(uint8_t reason)
 {
     wanted_ = false;
-    engine_.disconnect();
+    engine_.disconnect(reason);
 }
 
 void TinyMQClient::readAvailable()

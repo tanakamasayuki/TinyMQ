@@ -8,11 +8,18 @@
 //   CONNECT                  DISCONNECT             DROP (close the socket without DISCONNECT)
 //   SUB <qos> <filter>       UNSUB <filter>
 //   PUB <qos> <retain> <topic> <payload>           STATUS
+// MQTT 5.0 (with PROTO 5):
+//   PROPCLEAR   PROP CT|RT|CD <text>   PROP UP <name> <value>   PROP PFI|EXP <n>
+//   PUBP <qos> <retain> <topic> <payload>  (with the PROP properties)
+//   SUBO <qos> <no local> <rap> <retain handling> <subscription id> <filter>
+//   SEXP <s> (session expiry)   WDELAY <s> (will delay)   DISC <reason>
 // Events printed:
 //   CONNECT ok|fail <reason>   CONNACK <reason> <session present>
 //   SUB <id>  UNSUB <id>  PUB <id>  SUBACK <id> <codes...>  UNSUBACK <id>
 //   PUBDONE <id> <reason>  MSG <qos> <retain> <dup> <topic> <len> <payload>
 //   CLOSED <reason>  STATUS connected=<0|1> inflight=<n> dropped=<n>
+//   PROPS ct=.. rt=.. cd=.. pfi=.. exp=.. sid=a,b up=k=v;k=v   (after MSG, 5.0)
+//   SERVER assigned=<id> ka=<s> rmax=<n> mqos=<n> retain=<0|1> maxpkt=<n>   (after CONNECT ok)
 
 #include <TinyMQ.h>
 
@@ -28,6 +35,10 @@ static char g_pass[32];
 static char g_willTopic[64];
 static char g_willPayload[64];
 static char g_line[512];
+static uint8_t g_props[256];
+static size_t g_propsLen;
+static char g_propText[4][48];  // strings the PROP block points to
+static uint8_t g_willProps[16];
 static size_t g_lineLen;
 
 static void printHex2(uint8_t v)
@@ -53,6 +64,62 @@ static void onMessage(const tinymq::Message &m, void *)
     size_t n = m.payloadLen < 200 ? m.payloadLen : 200;
     Serial.write(m.payload, n);
     Serial.println();
+    if (!m.props.len)
+        return;
+    // the properties, on a line of their own
+    char ct[48] = "", rt[48] = "", cd[48] = "", sid[48] = "", up[96] = "";
+    long pfi = -1, exp = -1;
+    tinymq::PropReader r(m.props);
+    tinymq::Property p;
+    while (r.next(p)) {
+        switch (p.id) {
+        case tinymq::kContentType:
+            snprintf(ct, sizeof(ct), "%.*s", (int)p.data.len, (const char *)p.data.data);
+            break;
+        case tinymq::kResponseTopic:
+            snprintf(rt, sizeof(rt), "%.*s", (int)p.data.len, (const char *)p.data.data);
+            break;
+        case tinymq::kCorrelationData:
+            snprintf(cd, sizeof(cd), "%.*s", (int)p.data.len, (const char *)p.data.data);
+            break;
+        case tinymq::kPayloadFormatIndicator:
+            pfi = (long)p.value;
+            break;
+        case tinymq::kMessageExpiryInterval:
+            exp = (long)p.value;
+            break;
+        case tinymq::kSubscriptionIdentifier:
+            snprintf(sid + strlen(sid), sizeof(sid) - strlen(sid), "%s%lu", sid[0] ? "," : "", (unsigned long)p.value);
+            break;
+        case tinymq::kUserProperty:
+            snprintf(up + strlen(up), sizeof(up) - strlen(up), "%s%.*s=%.*s", up[0] ? ";" : "", (int)p.data.len, (const char *)p.data.data, (int)p.data2.len, (const char *)p.data2.data);
+            break;
+        }
+    }
+    char line[400];
+    snprintf(line, sizeof(line), "PROPS ct=%s rt=%s cd=%s pfi=%ld exp=%ld sid=%s up=%s", ct, rt, cd, pfi, exp, sid, up);
+    Serial.println(line);
+}
+
+// Rebuilds g_props from the PROP commands so far (kept as text in g_propText)
+static long g_pfi = -1, g_exp = -1;
+static char g_upName[24], g_upValue[24];
+static void buildProps()
+{
+    tinymq::PropWriter w(g_props, sizeof(g_props));
+    if (g_pfi >= 0)
+        w.byte(tinymq::kPayloadFormatIndicator, (uint8_t)g_pfi);
+    if (g_exp >= 0)
+        w.u32(tinymq::kMessageExpiryInterval, (uint32_t)g_exp);
+    if (g_propText[0][0])
+        w.string(tinymq::kContentType, tinymq::Bytes(g_propText[0]));
+    if (g_propText[1][0])
+        w.string(tinymq::kResponseTopic, tinymq::Bytes(g_propText[1]));
+    if (g_propText[2][0])
+        w.string(tinymq::kCorrelationData, tinymq::Bytes(g_propText[2]));
+    if (g_upName[0])
+        w.pair(tinymq::kUserProperty, tinymq::Bytes(g_upName), tinymq::Bytes(g_upValue));
+    g_propsLen = w.ok() ? w.result().len : 0;
 }
 
 static void onConnack(uint8_t reason, bool sessionPresent, void *)
@@ -146,6 +213,13 @@ static void command(char *line)
         Serial.print(ok ? "CONNECT ok " : "CONNECT fail ");
         printHex2(mqtt.lastReason());
         Serial.println();
+        if (ok) {
+            tinymq::ClientEngine &e = mqtt.engine();
+            char line[200];
+            snprintf(line, sizeof(line), "SERVER assigned=%s ka=%u rmax=%u mqos=%u retain=%u maxpkt=%lu", e.assignedClientId(), (unsigned)e.keepAlive(),
+                     (unsigned)e.serverReceiveMaximum(), (unsigned)e.serverMaximumQos(), e.serverRetainAvailable() ? 1u : 0u, (unsigned long)e.serverMaximumPacketSize());
+            Serial.println(line);
+        }
     } else if (!strcmp(cmd, "DISCONNECT")) {
         mqtt.disconnect();
     } else if (!strcmp(cmd, "DROP")) {
@@ -163,6 +237,57 @@ static void command(char *line)
         char *topic = nextWord(&s);
         Serial.print("PUB ");
         Serial.println(mqtt.publish(topic, s, qos, retain));
+    } else if (!strcmp(cmd, "PROPCLEAR")) {
+        memset(g_propText, 0, sizeof(g_propText));
+        g_pfi = g_exp = -1;
+        g_upName[0] = g_upValue[0] = 0;
+        buildProps();
+        Serial.println("OK PROPCLEAR");
+    } else if (!strcmp(cmd, "PROP")) {
+        char *what = nextWord(&s);
+        if (!strcmp(what, "CT"))
+            copyTo(g_propText[0], sizeof(g_propText[0]), s);
+        else if (!strcmp(what, "RT"))
+            copyTo(g_propText[1], sizeof(g_propText[1]), s);
+        else if (!strcmp(what, "CD"))
+            copyTo(g_propText[2], sizeof(g_propText[2]), s);
+        else if (!strcmp(what, "PFI"))
+            g_pfi = atol(s);
+        else if (!strcmp(what, "EXP"))
+            g_exp = atol(s);
+        else if (!strcmp(what, "UP")) {
+            copyTo(g_upName, sizeof(g_upName), nextWord(&s));
+            copyTo(g_upValue, sizeof(g_upValue), s);
+        }
+        buildProps();
+        Serial.println("OK PROP");
+    } else if (!strcmp(cmd, "PUBP")) {
+        uint8_t qos = (uint8_t)atoi(nextWord(&s));
+        bool retain = atoi(nextWord(&s)) != 0;
+        char *topic = nextWord(&s);
+        Serial.print("PUB ");
+        Serial.println(mqtt.publish(topic, (const uint8_t *)s, strlen(s), qos, retain, tinymq::Bytes(g_props, (uint32_t)g_propsLen)));
+    } else if (!strcmp(cmd, "SUBO")) {
+        tinymq::SubOptions o;
+        o.qos = (uint8_t)atoi(nextWord(&s));
+        o.noLocal = atoi(nextWord(&s)) != 0;
+        o.retainAsPublished = atoi(nextWord(&s)) != 0;
+        o.retainHandling = (uint8_t)atoi(nextWord(&s));
+        uint32_t sid = (uint32_t)atol(nextWord(&s));
+        Serial.print("SUB ");
+        Serial.println(mqtt.subscribe(nextWord(&s), o, sid));
+    } else if (!strcmp(cmd, "SEXP")) {
+        mqtt.setSessionExpiry((uint32_t)atol(nextWord(&s)));
+        Serial.println("OK SEXP");
+    } else if (!strcmp(cmd, "WDELAY")) {
+        tinymq::PropWriter w(g_willProps, sizeof(g_willProps));
+        uint32_t d = (uint32_t)atol(nextWord(&s));
+        if (d)
+            w.u32(tinymq::kWillDelayInterval, d);
+        mqtt.setWillProperties(w.result());
+        Serial.println("OK WDELAY");
+    } else if (!strcmp(cmd, "DISC")) {
+        mqtt.disconnect((uint8_t)strtol(nextWord(&s), nullptr, 16));
     } else if (!strcmp(cmd, "STATUS")) {
         Serial.print("STATUS connected=");
         Serial.print(mqtt.connected() ? 1 : 0);

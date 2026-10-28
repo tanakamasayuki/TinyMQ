@@ -38,6 +38,27 @@ bool ClientEngine::start(Link &link, uint32_t now)
     lastReason_ = kSuccess;
     if (connect_.cleanStart)
         clearSession();
+    keepAlive_ = connect_.keepAlive;
+    assigned_[0] = 0;
+    serverReceiveMax_ = 0xFFFF;
+    serverMaxPacket_ = 0xFFFFFFFF;
+    serverMaxQos_ = 2;
+    serverRetain_ = true;
+    connect_.props = Bytes();
+    if (connect_.version == kMqtt5) {
+        PropWriter w(connectProps_, sizeof(connectProps_));
+        if (sessionExpiry_)
+            w.u32(kSessionExpiryInterval, sessionExpiry_);
+        w.u16(kReceiveMaximum, TINYMQ_CLIENT_MAX_QOS2_IN);
+        w.u32(kMaximumPacketSize, sizeof(rx_));
+        w.copy(extraConnectProps_);
+        if (!w.ok()) {
+            state_ = State::WaitConnack;
+            close(kPacketTooLarge);
+            return false;
+        }
+        connect_.props = w.result();
+    }
     size_t n = encodeConnect(tx_, sizeof(tx_), connect_);
     state_ = State::WaitConnack;
     connectSentAt_ = now;
@@ -72,7 +93,7 @@ void ClientEngine::rxCommit(size_t n, uint32_t now)
         if (r == HeaderResult::NeedMore)
             break;
         if (r == HeaderResult::Malformed) {
-            close(kMalformedPacket);
+            fail(kMalformedPacket);
             return;
         }
         size_t total = h.size + (size_t)h.remaining;
@@ -86,7 +107,7 @@ void ClientEngine::rxCommit(size_t n, uint32_t now)
         // Larger than the buffer: only a PUBLISH can be skipped, once the
         // buffer is as full as it gets.
         if (h.type != PacketType::Publish) {
-            close(kPacketTooLarge);
+            fail(kPacketTooLarge);
             return;
         }
         if (pos > 0 || rxLen_ < sizeof(rx_))
@@ -113,9 +134,9 @@ void ClientEngine::poll(uint32_t now)
             close(kKeepAliveTimeout);
         return;
     }
-    if (state_ != State::Connected || connect_.keepAlive == 0)
+    if (state_ != State::Connected || keepAlive_ == 0)
         return;
-    uint32_t interval = (uint32_t)connect_.keepAlive * 1000;
+    uint32_t interval = (uint32_t)keepAlive_ * 1000;
     if (pingOutstanding_) {
         if (now - pingSentAt_ >= interval)
             close(kKeepAliveTimeout);
@@ -136,12 +157,21 @@ void ClientEngine::linkLost()
 
 // ---- application side
 
-int ClientEngine::publish(const char *topic, const uint8_t *payload, size_t len, uint8_t qos, bool retain)
+int ClientEngine::publish(const char *topic, const uint8_t *payload, size_t len, uint8_t qos, bool retain, Bytes props)
 {
-    if (state_ != State::Connected || qos > 2)
+    if (state_ != State::Connected || qos > serverMaxQos_ || (retain && !serverRetain_))
         return -1;
     Bytes t(topic);
     if (!validTopicName(t) || !validUtf8(t.data, t.len) || t.len > 0xFFFF)
+        return -1;
+    if (connect_.version != kMqtt5)
+        props = Bytes();
+    Property pr;
+    if (props.len && (checkProps(props, kInPublish) != kSuccess || findProp(props, kTopicAlias, pr) || findProp(props, kSubscriptionIdentifier, pr)))
+        return -1;
+    // the packet must fit what the server takes
+    size_t size = 1 + 4 + 2 + t.len + (qos ? 2 : 0) + (connect_.version == kMqtt5 ? varintSize(props.len) + props.len : 0) + len;
+    if (size > serverMaxPacket_)
         return -1;
     Bytes p(payload, (uint32_t)len);
     if (qos == 0) {
@@ -149,6 +179,7 @@ int ClientEngine::publish(const char *topic, const uint8_t *payload, size_t len,
         pub.topic = t;
         pub.payload = p;
         pub.retain = retain;
+        pub.props = props;
         size_t head = encodePublishHead(tx_, sizeof(tx_), connect_.version, pub);
         if (head == 0)
             return -1;
@@ -162,9 +193,9 @@ int ClientEngine::publish(const char *topic, const uint8_t *payload, size_t len,
         }
         return ok ? 0 : -1;
     }
-    if (inflightCount_ >= TINYMQ_CLIENT_MAX_INFLIGHT)
+    if (inflightCount_ >= TINYMQ_CLIENT_MAX_INFLIGHT || inflightCount_ >= serverReceiveMax_)
         return -1;
-    uint32_t msg = store_.create(t, Bytes(), p, qos, retain);
+    uint32_t msg = store_.create(t, props, p, qos, retain);
     if (msg == Pool::kNull)
         return -1;
     uint16_t id = nextPacketId();
@@ -179,8 +210,21 @@ int ClientEngine::publish(const char *topic, const uint8_t *payload, size_t len,
 
 int ClientEngine::subscribe(const char *filter, uint8_t qos)
 {
-    if (state_ != State::Connected || qos > 2)
+    SubOptions o;
+    o.qos = qos;
+    return subscribe(filter, o, 0);
+}
+
+int ClientEngine::subscribe(const char *filter, SubOptions o, uint32_t subscriptionId)
+{
+    if (state_ != State::Connected || o.qos > 2 || o.retainHandling > 2 || subscriptionId > 268435455)
         return -1;
+    if (connect_.version != kMqtt5) {
+        uint8_t qos = o.qos;
+        o = SubOptions();
+        o.qos = qos;
+        subscriptionId = 0;
+    }
     Bytes f(filter);
     if (!validTopicFilter(f) || !validUtf8(f.data, f.len))
         return -1;
@@ -189,11 +233,15 @@ int ClientEngine::subscribe(const char *filter, uint8_t qos)
     if (entryCap + 16 > sizeof(tx_))
         return -1;
     uint8_t *entry = tx_ + sizeof(tx_) - entryCap;
-    SubOptions o;
-    o.qos = qos;
     size_t entryLen = appendSubscription(entry, entryCap, 0, f, o);
     Subscribe s;
     s.packetId = nextPacketId();
+    uint8_t props[8];
+    if (subscriptionId) {
+        PropWriter w(props, sizeof(props));
+        w.varint(kSubscriptionIdentifier, subscriptionId);
+        s.props = w.result();
+    }
     // encoding moves `entries` forward within tx_ (Writer uses memmove)
     s.entries = Bytes(entry, (uint32_t)entryLen);
     size_t n = encodeSubscribe(tx_, sizeof(tx_), connect_.version, s);
@@ -223,12 +271,13 @@ int ClientEngine::unsubscribe(const char *filter)
     return u.packetId;
 }
 
-void ClientEngine::disconnect()
+void ClientEngine::disconnect(uint8_t reason)
 {
     if (state_ == State::Disconnected)
         return;
     if (state_ == State::Connected) {
         Disconnect d;
+        d.reason = reason;
         size_t n = encodeDisconnect(tx_, sizeof(tx_), connect_.version, PacketType::Disconnect, d);
         link_->write(tx_, n);
     }
@@ -253,6 +302,7 @@ bool ClientEngine::sendPublish(uint32_t msg, uint16_t packetId, bool dup)
 {
     Publish pub;
     pub.topic = store_.topic(msg);
+    pub.props = store_.props(msg);
     pub.payload = store_.payload(msg);
     pub.qos = store_.qos(msg);
     pub.retain = store_.retain(msg);
@@ -289,6 +339,17 @@ void ClientEngine::close(uint8_t reason)
         link_->close();
     if (onClosed_)
         onClosed_(reason, onClosedCtx_);
+}
+
+void ClientEngine::fail(uint8_t reason)
+{
+    if (state_ == State::Connected && connect_.version == kMqtt5) {
+        Disconnect d;
+        d.reason = reason;
+        size_t n = encodeDisconnect(tx_, sizeof(tx_), kMqtt5, PacketType::Disconnect, d);
+        link_->write(tx_, n);
+    }
+    close(reason);
 }
 
 void ClientEngine::clearSession()
@@ -384,7 +445,7 @@ void ClientEngine::handlePacket(const FixedHeader &h, const uint8_t *body)
     case PacketType::Unsuback: {
         SubAck a;
         if (decodeSubAck(h, body, len, connect_.version, a) != kSuccess) {
-            close(kMalformedPacket);
+            fail(kMalformedPacket);
             return;
         }
         if (onSuback_)
@@ -393,7 +454,7 @@ void ClientEngine::handlePacket(const FixedHeader &h, const uint8_t *body)
     }
     case PacketType::Pingresp:
         if (len != 0) {
-            close(kMalformedPacket);
+            fail(kMalformedPacket);
             return;
         }
         pingOutstanding_ = false;
@@ -409,7 +470,7 @@ void ClientEngine::handlePacket(const FixedHeader &h, const uint8_t *body)
         break;
     }
     default:
-        close(kProtocolError);
+        fail(kProtocolError);
         break;
     }
 }
@@ -417,8 +478,11 @@ void ClientEngine::handlePacket(const FixedHeader &h, const uint8_t *body)
 void ClientEngine::handleConnack(const uint8_t *body, size_t len)
 {
     Connack c;
-    if (decodeConnack(body, len, connect_.version, c) != kSuccess) {
-        close(kMalformedPacket);
+    uint8_t r = decodeConnack(body, len, connect_.version, c);
+    if (r == kSuccess && connect_.version == kMqtt5)
+        r = checkProps(c.props, kInConnack);
+    if (r != kSuccess) {
+        close(r);
         return;
     }
     if (c.reason != kSuccess) {
@@ -426,6 +490,37 @@ void ClientEngine::handleConnack(const uint8_t *body, size_t len)
             onConnack_(c.reason, false, onConnackCtx_);
         close(c.reason);
         return;
+    }
+    if (connect_.version == kMqtt5) {
+        PropReader pr(c.props);
+        Property p;
+        while (pr.next(p)) {
+            switch (p.id) {
+            case kAssignedClientIdentifier: {
+                size_t n = p.data.len < sizeof(assigned_) - 1 ? p.data.len : sizeof(assigned_) - 1;
+                memcpy(assigned_, p.data.data, n);
+                assigned_[n] = 0;
+                break;
+            }
+            case kServerKeepAlive:
+                keepAlive_ = (uint16_t)p.value;
+                break;
+            case kReceiveMaximum:
+                serverReceiveMax_ = (uint16_t)p.value;
+                break;
+            case kMaximumPacketSize:
+                serverMaxPacket_ = p.value;
+                break;
+            case kMaximumQos:
+                serverMaxQos_ = (uint8_t)p.value;
+                break;
+            case kRetainAvailable:
+                serverRetain_ = p.value != 0;
+                break;
+            default:
+                break;
+            }
+        }
     }
     state_ = State::Connected;
     if (!c.sessionPresent) {
@@ -447,8 +542,17 @@ void ClientEngine::handleConnack(const uint8_t *body, size_t len)
 void ClientEngine::handlePublish(const FixedHeader &h, const uint8_t *body, size_t len)
 {
     Publish p;
-    if (decodePublish(h, body, len, connect_.version, p) != kSuccess || !validTopicName(p.topic)) {
-        close(kMalformedPacket);
+    uint8_t r = decodePublish(h, body, len, connect_.version, p);
+    Property alias;
+    if (r == kSuccess && connect_.version == kMqtt5) {
+        r = checkProps(p.props, kInPublish);
+        if (r == kSuccess && findProp(p.props, kTopicAlias, alias))
+            r = kTopicAliasInvalid;  // we said Topic Alias Maximum 0
+    }
+    if (r == kSuccess && !validTopicName(p.topic))
+        r = connect_.version == kMqtt5 ? kTopicNameInvalid : kMalformedPacket;
+    if (r != kSuccess) {
+        fail(r);
         return;
     }
     bool deliver = !(p.qos == 2 && knowsQos2(p.packetId));
@@ -502,7 +606,7 @@ void ClientEngine::handleAck(const FixedHeader &h, const uint8_t *body, size_t l
 {
     Ack a;
     if (decodeAck(h, body, len, connect_.version, a) != kSuccess) {
-        close(kMalformedPacket);
+        fail(kMalformedPacket);
         return;
     }
     int i;

@@ -9,6 +9,7 @@
 #include "mq_codec.h"
 #include "mq_config.h"
 #include "mq_pool.h"
+#include "mq_props.h"
 
 namespace tinymq {
 
@@ -37,6 +38,13 @@ public:
     void setWill(const char *topic, const uint8_t *payload, size_t len, uint8_t qos, bool retain);
     void clearWill() { connect_.hasWill = false; }
     void setConnackTimeout(uint32_t ms) { connackTimeout_ = ms; }
+    // 5.0: how long the server keeps the session after the connection ends
+    void setSessionExpiry(uint32_t seconds) { sessionExpiry_ = seconds; }
+    // 5.0: more CONNECT properties (user properties, ...) and the will's
+    // properties (Will Delay Interval, Message Expiry Interval, ...), as
+    // property blocks built with PropWriter. Not copied.
+    void setConnectProperties(Bytes props) { extraConnectProps_ = props; }
+    void setWillProperties(Bytes props) { connect_.willProps = props; }
 
     void onMessage(MessageHandler h, void *context = nullptr) { onMessage_ = h; onMessageCtx_ = context; }
     void onConnack(ConnackHandler h, void *context = nullptr) { onConnack_ = h; onConnackCtx_ = context; }
@@ -56,11 +64,25 @@ public:
     // ---- application side
     State state() const { return state_; }
     bool connected() const { return state_ == State::Connected; }
-    // Packet identifier for QoS 1 / 2, 0 for QoS 0, -1 on failure
-    int publish(const char *topic, const uint8_t *payload, size_t len, uint8_t qos, bool retain);
+    // Packet identifier for QoS 1 / 2, 0 for QoS 0, -1 on failure. `props`
+    // (5.0) is a PUBLISH property block; it may not hold a Topic Alias or a
+    // Subscription Identifier.
+    int publish(const char *topic, const uint8_t *payload, size_t len, uint8_t qos, bool retain, Bytes props = Bytes());
     int subscribe(const char *filter, uint8_t qos);
+    // 5.0 options (No Local, Retain As Published, Retain Handling) and a
+    // subscription identifier (0: none)
+    int subscribe(const char *filter, SubOptions opts, uint32_t subscriptionId = 0);
     int unsubscribe(const char *filter);
-    void disconnect();
+    // 5.0: `reason` kDisconnectWithWill asks the server to publish the will
+    void disconnect(uint8_t reason = kSuccess);
+
+    // ---- what the server said in CONNACK (5.0)
+    const char *assignedClientId() const { return assigned_; }  // "" if none
+    uint16_t serverReceiveMaximum() const { return serverReceiveMax_; }
+    uint32_t serverMaximumPacketSize() const { return serverMaxPacket_; }
+    uint8_t serverMaximumQos() const { return serverMaxQos_; }
+    bool serverRetainAvailable() const { return serverRetain_; }
+    uint16_t keepAlive() const { return keepAlive_; }  // the client's, or the server's Server Keep Alive
 
     uint8_t lastReason() const { return lastReason_; }
     size_t inflight() const { return inflightCount_; }
@@ -78,6 +100,8 @@ private:
     bool sendPublish(uint32_t msg, uint16_t packetId, bool dup);
     bool sendAck(PacketType type, uint16_t packetId);
     void close(uint8_t reason);
+    // A protocol error found here: a 5.0 server hears `reason` first
+    void fail(uint8_t reason);
     void clearSession();
     uint16_t nextPacketId();
     bool packetIdInUse(uint16_t id) const;
@@ -96,6 +120,15 @@ private:
     State state_ = State::Disconnected;
     Connect connect_;
     uint32_t connackTimeout_ = 10000;
+    uint32_t sessionExpiry_ = 0;
+    Bytes extraConnectProps_;
+    uint8_t connectProps_[TINYMQ_MAX_TOPIC_LEN + 64];
+    uint16_t keepAlive_ = 0;
+    char assigned_[TINYMQ_MAX_TOPIC_LEN + 1] = {0};
+    uint16_t serverReceiveMax_ = 0xFFFF;
+    uint32_t serverMaxPacket_ = 0xFFFFFFFF;
+    uint8_t serverMaxQos_ = 2;
+    bool serverRetain_ = true;
     uint32_t now_ = 0;
     uint32_t lastTx_ = 0;
     uint32_t pingSentAt_ = 0;

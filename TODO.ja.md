@@ -37,13 +37,15 @@ SPEC §7 の順に進める。
 - [ ] Phase 5: 実機
   - [x] ESP32 / ESP32-S3: 単体テストと 3 つの相互接続試験(Wi-Fi)
   - [ ] ESP32 の `sn_client_interop` の `resend` が 1 回だけ失敗した(偽ゲートウェイが最初に REGISTER ではなく PUBLISH を受けた)。再実行では通り、ESP32-S3 でも通る。原因は未特定。再発したら受信内容がアサーションに出る
+  - [x] ESP32 / ESP32-S3 で 5.0 を含む 3 つの相互接続試験が通過(2026-10-28)
+  - [ ] ESP32-S3 が試験中に 1 回だけ電源投入リセットでダウンロードモードに入った(`rst:0x1 (POWERON), boot:0x23`)。再実行では起きていない。USB の電源か、ほかのスイートとの取り合いかは未確認
   - [ ] CH32V307(Ethernet、Network ライブラリ)。ブローカーの軽い構成と MQTT-SN クライアント。ベンチのロックを取って使う
   - [ ] Pico W(つながっていない)
   - [ ] 計測(ブローカーの接続数ごとの RAM、配送の速さと遅延)、TinyWG との組み合わせ
 - [ ] Phase 6: MQTT 5.0
   - [x] プロパティのコーデック
   - [x] ブローカー(セッション / メッセージの有効期限、Will Delay、購読識別子と購読オプション、共有購読、受信側のトピックエイリアス、Receive Maximum、Maximum Packet Size、理由コード)
-  - [ ] クライアント
+  - [x] クライアント(CONNECT / CONNACK のプロパティ、プロパティ付きの publish、購読オプションと識別子、理由コード付きの DISCONNECT)。mosquitto と偽ブローカーで試験
   - [ ] 拡張認証(AUTH)。今は Authentication Method を CONNACK 0x8C で断る
 - [ ] Phase 7: ブリッジ
 - [ ] Phase 8: lwIP の受け口、永続化のフック

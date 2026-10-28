@@ -42,6 +42,11 @@ class LineDut:
                 return m
             self.backlog.append(line)
 
+    def setting(self, line):
+        """Sends a settings command and waits for its OK <command>."""
+        self.send(line)
+        self.expect(rf"^OK {line.split()[0]}$")
+
     def ready(self, timeout=150):
         """Waits for READY <ip> (after joining Wi-Fi on a board) and returns the ip."""
         m = self.expect(r"^(READY|NET_ERROR) ?(.*)$", timeout)

@@ -1,4 +1,5 @@
-"""TinyMQClient (MQTT 3.1.1 / 3.1) against mosquitto and a scripted fake broker.
+"""TinyMQClient (MQTT 3.1.1 / 3.1 / 5.0) against mosquitto and a scripted fake broker
+(5.0 in client_v5_scenarios.py).
 
 The host DUT accepts one serial connection per process, so the scenarios
 run inside one test function and are reported one by one
@@ -16,6 +17,7 @@ from helpers.line_dut import LineDut
 from helpers.mosquitto import make_password_file, mosquitto
 from helpers.paho_peer import PahoPeer
 from helpers import target
+from client_v5_scenarios import SCENARIOS as V5_SCENARIOS
 
 OUTPUT = Path(__file__).parent / "output"
 
@@ -382,6 +384,8 @@ def test_client_interop(dut, record_property):
         run("keepalive", scenario_keepalive, port, log_path)
         run("oversize", scenario_oversize, port)
         run("mqtt31", scenario_mqtt31, port)
+        for name, fn in V5_SCENARIOS:
+            run(name, fn, port)
     run("auth", scenario_auth)
     run("resend", scenario_resend)
     run("qos2_in", scenario_qos2_in)

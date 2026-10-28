@@ -1,6 +1,6 @@
 """TinyMQBroker (MQTT 3.1.1 / 3.1 / 5.0 over TCP) against paho-mqtt and raw
-sockets (5.0 in v5_scenarios.py), and
-its MQTT-SN gateway against a Python MQTT-SN client (sn_scenarios.py).
+sockets (5.0 in broker_v5_scenarios.py), and
+its MQTT-SN gateway against a Python MQTT-SN client (broker_sn_scenarios.py).
 
 The host DUT accepts one serial connection per process, so the scenarios
 run inside one test function and are reported one by one
@@ -19,17 +19,12 @@ from helpers import target
 from helpers.line_dut import LineDut
 from helpers.mosquitto import free_port
 from helpers.paho_peer import PahoPeer
-from sn_scenarios import SCENARIOS as SN_SCENARIOS, free_udp_port
-from v5_scenarios import SCENARIOS as V5_SCENARIOS
+from broker_sn_scenarios import SCENARIOS as SN_SCENARIOS, free_udp_port
+from broker_v5_scenarios import SCENARIOS as V5_SCENARIOS
 
 
 class Dut(LineDut):
     """Serial commands of broker_interop.ino."""
-
-    def setting(self, line):
-        """Sends a settings command and waits until it took effect."""
-        self.send(line)
-        self.expect(rf"^OK {line.split()[0]}$")
 
     def stats(self):
         self.send("STATS")
