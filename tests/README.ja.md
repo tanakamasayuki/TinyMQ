@@ -5,7 +5,18 @@ TinyWG と同じく、[pytest-embedded](https://docs.espressif.com/projects/pyte
 ```sh
 cd tests
 uv run pytest smoke codec topic pool
+uv run pytest client_interop          # mosquitto が必要(下記)
 ```
+
+## mosquitto
+
+相互接続テストは PC 上の mosquitto を相手にします。`$MOSQUITTO`、`PATH`(`/usr/sbin` を含む)、`tests/.tools/mosquitto` の順に探し、見つからなければスキップします。root がなくても、Debian / Ubuntu なら次のコマンドでパッケージを `tests/.tools/mosquitto` に展開して使えます(インストールはしません)。
+
+```sh
+tests/tools/fetch_mosquitto.sh
+```
+
+テストごとに空いているポートで mosquitto を起動し、設定とログは各テストの `output/` に残ります。
 
 ## 各テスト
 
@@ -14,6 +25,7 @@ uv run pytest smoke codec topic pool
 | `smoke/` | ビルドとハーネスの確認 | host / esp32 / esp32s3 / ch32v307 / picow |
 | `codec/` | 可変長整数、UTF-8 の検証、固定ヘッダ、全パケット種別のエンコード / デコード(3.1.1 と 5.0)を仕様書から組み立てたバイト列と照合。不正なパケットの拒否、バッファ不足 | 同上 |
 | `topic/` | トピック名とフィルタの検証、照合(仕様書 §4.7 の例)、`$` で始まるトピック、共有購読 `$share/` の分解 | 同上 |
+| `client_interop/` | `TinyMQClient`(3.1.1 / 3.1)をシリアルのコマンドで動かす。mosquitto 相手に QoS 0 / 1 / 2 の送受信と QoS の引き下げ、retain、購読解除、will(DISCONNECT では出ない / 切断で出る)、永続セッション、keepalive、受信バッファより大きいメッセージの読み捨て、MQTT 3.1、ユーザ名とパスワード。スクリプトで動かす偽ブローカー相手に、再接続後の QoS 1 の再送(DUP)と PUBREL の再送、セッションがないときは再送しないこと、QoS 2 の重複受信、PINGRESP が来ないときの切断、接続の拒否 | host のみ |
 | `pool/` | メッセージプールの確保・解放・結合・枯渇・アライメント、2 万回のランダムな確保と解放、参照カウント付きメッセージ | 同上 |
 
 ## 実機で動かす

@@ -13,3 +13,4 @@
 #include "tinymq/mq_codec.h"
 #include "tinymq/mq_topic.h"
 #include "tinymq/mq_pool.h"
+#include "TinyMQClient.h"

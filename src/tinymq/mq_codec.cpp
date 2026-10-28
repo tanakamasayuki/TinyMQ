@@ -81,7 +81,7 @@ void Writer::raw(const uint8_t *d, size_t n)
             return;
         }
         if (n)
-            memcpy(buf_ + pos_, d, n);
+            memmove(buf_ + pos_, d, n);  // the source may lie further on in the same buffer
     }
     pos_ += n;
 }
