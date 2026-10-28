@@ -93,6 +93,8 @@ Arduino IDE は `-D` を渡す場所がありません。arduino-cli なら `--b
 | `TinyMQSnListener` | MQTT-SN のクライアント |
 | `TinyMQBridge` | 上流のブローカーとの間の転送 |
 
+**遅延 ACK**: Nagle のアルゴリズムを止めていないクライアント(paho-mqtt など多くのもの)は、前に送ったものの ACK が来るまで次の小さなパケットを送りません。返事のない QoS 0 では、ブローカー側の遅延 ACK(lwIP では最大 250 ms)の分だけ遅れます。`TinyMQLwipListener` は受け取るたびにすぐ ACK を返すので、この遅れがありません。`TinyMQTcpListener` では ACK を制御できないので、クライアント側で Nagle を止める(`TCP_NODELAY`)か、QoS 1 を使うと遅れません。
+
 複数を同時に登録できます(例: Wi-Fi は lwIP、W5500 は `TinyMQTcpListener`)。接続数の上限 `TINYMQ_BROKER_MAX_CLIENTS` は全部の合計です。
 
 ## 4. 実行モデル

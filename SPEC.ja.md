@@ -199,6 +199,22 @@ CH32V307(Ethernet で 1 秒ごとに UDP を送るスケッチとの差、`TINYM
 
 当初案にあった `TINYMQ_ENABLE_SN` / `TINYMQ_ENABLE_BRIDGE` / `TINYMQ_ENABLE_PERSISTENT_SESSION` などは設けていない。MQTT-SN、ブリッジ、永続化は、使わなければリンカが落とす。`$SYS` は未実装。
 
+### 5.2 ブローカーの性能(2026-10-28、`tests/bench_broker`、ESP32-S3、家庭用の Wi-Fi、PC の paho-mqtt から)
+
+| | `TinyMQLwipListener` | `TinyMQTcpListener<WiFiServer>` |
+|---|---|---|
+| 往復の遅延 QoS 0(中央値 / p95) | 7.9 / 17.7 ms | 249 / 268 ms(遅延 ACK、下記) |
+| 往復の遅延 QoS 1(中央値 / p95) | 7.7 / 17.4 ms | 10.7 / 20.2 ms |
+| 1 対 1 の連続送信 QoS 0(100 バイト) | 2967 msg/s(届いた割合 71%) | 916 msg/s(100%) |
+| 1 対 1 の連続送信 QoS 1 | 125 msg/s | 88 msg/s |
+| 1 対 4 の配送 QoS 0 | 6913 件/s(76%) | 1350 件/s(100%) |
+
+- QoS 1 の連続送信は、paho が同時に 20 件までしか送らないので、Wi-Fi の往復で決まる
+- QoS 0 の取りこぼしは、購読者のキュー(`TINYMQ_BROKER_MAX_QUEUED`、既定 32)が溢れた分で、`droppedMessages()` に数える。`TinyMQTcpListener` は書き込みで待つので、送り手の TCP が抑えられて取りこぼさないが、全体が遅くなる
+- **遅延 ACK**: Nagle を止めていないクライアント(paho-mqtt など)の QoS 0 は、ブローカー側の遅延 ACK(lwIP で最大 250 ms)を待たされる。`TinyMQLwipListener` は受け取るたびにすぐ ACK を返すので起きない
+- 計測の途中で、`TinyMQLwipListener` の 2 つの問題を直した: 送信キューのセグメント数(`TCP_SND_QUEUELEN`)を見ずに書いて接続が切れていたこと、書き込みのたびに `tcp_output()` を呼んで小さなパケットが別々のセグメントになっていたこと(後者で 1 対 1 は 244 → 2967 msg/s)
+- ESP32(D0WDQ6)は、同じ時間帯にほかのスイートがボードを使っていて書き込みに失敗し、直したあとの値は取れていない
+
 ## 6. テスト方針
 
 TinyWG と同じ構成(pytest-embedded + Arduino CLI、`TEST done N/M` プロトコル、`sketch.yaml` のプロファイルでコアを固定)を踏襲する。

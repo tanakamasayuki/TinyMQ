@@ -1,6 +1,8 @@
 # Changelog / 変更履歴
 
 ## Unreleased
+- (EN) TinyMQLwipListener: acknowledges at once (no delayed-ACK stalls with Nagle senders), respects the send queue's segment limit, and batches tcp_output() per update.
+- (JA) TinyMQLwipListener: すぐ ACK を返す(Nagle の送り手で遅延 ACK を待たない)、送信キューのセグメント数の上限を守る、tcp_output() を update ごとにまとめる。
 - (EN) TinyMQBridge keeps QoS 1 / 2 messages for upstream while it is down and sends them in order once it is back.
 - (JA) TinyMQBridge が、上流が落ちている間の QoS 1 / 2 を預かり、戻ったら順に送る。
 - (EN) $SYS/broker/... topics (setSysInterval(), off by default) and message counters in the broker.

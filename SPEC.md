@@ -199,6 +199,22 @@ Two levels: build-time macros (override with `-D`, in `src/tinymq/mq_config.h`) 
 
 The planned `TINYMQ_ENABLE_SN` / `TINYMQ_ENABLE_BRIDGE` / `TINYMQ_ENABLE_PERSISTENT_SESSION` and the like were not added: MQTT-SN, bridges and persistence are dropped by the linker when unused. `$SYS` is not implemented yet.
 
+### 5.2 Broker performance (2026-10-28, `tests/bench_broker`, ESP32-S3, home Wi-Fi, paho-mqtt on the PC)
+
+| | `TinyMQLwipListener` | `TinyMQTcpListener<WiFiServer>` |
+|---|---|---|
+| Round trip, QoS 0 (median / p95) | 7.9 / 17.7 ms | 249 / 268 ms (delayed ACK, below) |
+| Round trip, QoS 1 (median / p95) | 7.7 / 17.4 ms | 10.7 / 20.2 ms |
+| One to one, QoS 0 (100 bytes) | 2967 msg/s (71% delivered) | 916 msg/s (100%) |
+| One to one, QoS 1 | 125 msg/s | 88 msg/s |
+| One to four, QoS 0 | 6913 deliveries/s (76%) | 1350 deliveries/s (100%) |
+
+- QoS 1 throughput is bound by the Wi-Fi round trip: paho keeps at most 20 messages in flight.
+- QoS 0 losses are subscriber queues (`TINYMQ_BROKER_MAX_QUEUED`, 32 by default) overflowing, counted in `droppedMessages()`. `TinyMQTcpListener` waits in its writes, which holds the sender back through TCP: nothing is lost, but everything is slower.
+- **Delayed ACK**: QoS 0 from a client that leaves Nagle's algorithm on (paho-mqtt and others) waits for the broker's delayed ACK (up to 250 ms in lwIP). `TinyMQLwipListener` acknowledges at once, so it does not happen there.
+- Two problems of `TinyMQLwipListener` were fixed while measuring: writes ignored the segment limit of the send queue (`TCP_SND_QUEUELEN`) and broke connections, and `tcp_output()` after every write sent each small packet in its own segment (fixing the latter took one-to-one from 244 to 2967 msg/s).
+- ESP32 (D0WDQ6): other suites were using the board at the time and uploads failed; no values after the fixes.
+
 ## 6. Testing
 
 The same structure as TinyWG (pytest-embedded + Arduino CLI, the `TEST done N/M` protocol, cores pinned by `sketch.yaml` profiles).

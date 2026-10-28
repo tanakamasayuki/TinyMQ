@@ -93,6 +93,8 @@ Code for features you do not use (5.0, MQTT-SN, bridges) is dropped by the linke
 | `TinyMQSnListener` | MQTT-SN clients |
 | `TinyMQBridge` | Forwarding to and from an upstream broker |
 
+**Delayed ACKs**: a client that leaves Nagle's algorithm on (paho-mqtt and many others) holds its next small packet until what it sent before is acknowledged. With QoS 0, where nothing answers, that waits for the broker's delayed ACK (up to 250 ms in lwIP). `TinyMQLwipListener` acknowledges at once whatever arrives, so this delay does not happen. `TinyMQTcpListener` cannot control ACKs: turn Nagle off on the client (`TCP_NODELAY`) or use QoS 1 to avoid it.
+
 You can register several at once (for example, lwIP for Wi-Fi and `TinyMQTcpListener` for a W5500). The connection limit `TINYMQ_BROKER_MAX_CLIENTS` is the total over all of them.
 
 ## 4. Execution model

@@ -45,6 +45,7 @@ struct LwipLock {
 
 // Room kept in the send buffer for acknowledgements and other small packets
 const size_t kReserve = 64;
+const u16_t kReserveSegments = 4;
 
 }  // namespace
 
@@ -168,8 +169,14 @@ void TinyMQLwipListener::update(tinymq::Broker &engine, uint32_t now)
             size_t n = s.rx->tot_len < room ? s.rx->tot_len : room;
             pbuf_copy_partial(s.rx, buf, (u16_t)n, 0);
             s.rx = pbuf_free_header(s.rx, (u16_t)n);
-            if (s.pcb)
+            if (s.pcb) {
                 tcp_recved(s.pcb, (u16_t)n);
+                // acknowledge now: a client with Nagle's algorithm on holds its
+                // next small packet until this ACK, which lwIP would delay up
+                // to 250 ms when there is no answer to carry it (QoS 0)
+                tcp_set_flags(s.pcb, TF_ACK_NOW);
+                tcp_output(s.pcb);
+            }
             engine.rxCommit(s.conn, n, now);
         }
         if (engine.owns(s.conn, s) && s.gone && !s.rx)
@@ -180,6 +187,12 @@ void TinyMQLwipListener::update(tinymq::Broker &engine, uint32_t now)
                 s.release();
         }
     }
+    // what the broker wrote, from this listener or any other, goes out now
+    for (Slot &s : slots_)
+        if (s.unsent && s.pcb) {
+            s.unsent = false;
+            tcp_output(s.pcb);
+        }
 }
 
 size_t TinyMQLwipListener::Slot::write(const uint8_t *data, size_t len)
@@ -199,7 +212,8 @@ size_t TinyMQLwipListener::Slot::write(const uint8_t *data, size_t len)
             break;
         done += n;
     }
-    tcp_output(pcb);
+    // sent at the end of update(): small packets written meanwhile share segments
+    unsent = unsent || done > 0;
     return done;
 }
 
@@ -207,6 +221,11 @@ size_t TinyMQLwipListener::Slot::writable()
 {
     LwipLock lock;
     if (!pcb || gone)
+        return 0;
+    // both limits of the send queue: bytes, and the number of segments
+    // (TCP_SND_QUEUELEN), which runs out first with many small packets and
+    // would make tcp_write() fail half way
+    if (tcp_sndqueuelen(pcb) + kReserveSegments >= TCP_SND_QUEUELEN)
         return 0;
     size_t room = tcp_sndbuf(pcb);
     return room > kReserve ? room - kReserve : 0;
@@ -219,6 +238,12 @@ void TinyMQLwipListener::Slot::close()
         tcp_arg(pcb, nullptr);
         tcp_recv(pcb, nullptr);
         tcp_err(pcb, nullptr);
+        // what the broker said last (a DISCONNECT) goes first; data left
+        // unread is taken as read, or tcp_close() would answer with a reset
+        // and drop the unsent data
+        if (rx)
+            tcp_recved(pcb, rx->tot_len);
+        tcp_output(pcb);
         if (tcp_close(pcb) != ERR_OK)
             tcp_abort(pcb);
     }
@@ -234,6 +259,7 @@ void TinyMQLwipListener::Slot::release()
     conn = -1;
     fresh = false;
     gone = false;
+    unsent = false;
 }
 
 #endif  // TINYMQ_HAS_LWIP

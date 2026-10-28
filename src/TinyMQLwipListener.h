@@ -41,6 +41,7 @@ private:
         int conn = -1;
         bool fresh = false;     // accepted, not yet given to the broker
         bool gone = false;      // closed by the peer or by an error
+        bool unsent = false;    // written since the last tcp_output()
 
         size_t write(const uint8_t *data, size_t len) override;
         void close() override;

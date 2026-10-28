@@ -1,7 +1,9 @@
 """Measurements of TinyMQBroker from the PC with paho-mqtt: round-trip
 latency, one-to-one throughput and one-to-four fan-out, through each
 listener the DUT has. Values are printed as BENCH <name> <value> <unit> and
-kept as junit properties; the test fails only if messages go missing.
+kept as junit properties; the test fails only if QoS 1 messages go missing
+(QoS 0 may be dropped when a subscriber falls behind: the share delivered
+is recorded).
 
     uv run --env-file .env pytest bench_broker --profile esp32 -s
 """
@@ -109,15 +111,18 @@ def test_bench_broker(dut, record_property):
                 med, p95 = latency(p, qos)
                 bench(f"{kind}_latency_qos{qos}_median", med, "ms")
                 bench(f"{kind}_latency_qos{qos}_p95", p95, "ms")
-            for qos, n in ((0, 2000), (1, 500)):
-                got, rate = throughput(p, qos, n=n)
-                bench(f"{kind}_throughput_qos{qos}", rate, "msg/s")
-                if got < n:
-                    missing.append(f"{kind} qos{qos}: {got}/{n}")
+            # QoS 0 may be dropped when a subscriber's queue is full: the share
+            # delivered is recorded. QoS 1 must all arrive.
+            got, rate = throughput(p, 0, n=2000)
+            bench(f"{kind}_throughput_qos0", rate, "msg/s")
+            bench(f"{kind}_delivered_qos0", 100 * got / 2000, "%")
+            got, rate = throughput(p, 1, n=500)
+            bench(f"{kind}_throughput_qos1", rate, "msg/s")
+            if got < 500:
+                missing.append(f"{kind} qos1: {got}/500")
             got, rate = throughput(p, 0, subscribers=4, n=500)
             bench(f"{kind}_fanout4_qos0", rate, "deliveries/s")
-            if got < 2000:
-                missing.append(f"{kind} fan-out: {got}/2000")
+            bench(f"{kind}_fanout4_delivered", 100 * got / 2000, "%")
         d.send("STATS")
         print(d.expect(r"^STATS .*").group(0))
     finally:
