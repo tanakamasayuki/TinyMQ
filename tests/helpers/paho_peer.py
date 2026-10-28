@@ -10,11 +10,17 @@ from helpers import target
 
 
 class PahoPeer:
-    def __init__(self, port, client_id="pc", protocol=mqtt.MQTTv311, clean_session=True, host=None):
+    def __init__(self, port, client_id="pc", protocol=mqtt.MQTTv311, clean_session=True, host=None, properties=None):
         self.messages = queue.Queue()
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, protocol=protocol, clean_session=clean_session)
+        if protocol == mqtt.MQTTv5:
+            self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, protocol=protocol)
+        else:
+            self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, protocol=protocol, clean_session=clean_session)
         self.client.on_message = lambda c, u, m: self.messages.put(m)
-        self.client.connect(host or target.HOST, port, keepalive=30)
+        if protocol == mqtt.MQTTv5:
+            self.client.connect(host or target.HOST, port, keepalive=30, clean_start=clean_session, properties=properties)
+        else:
+            self.client.connect(host or target.HOST, port, keepalive=30)
         self.client.loop_start()
         deadline = time.time() + 5
         while not self.client.is_connected():
@@ -22,13 +28,17 @@ class PahoPeer:
                 raise TimeoutError("paho did not connect")
             time.sleep(0.01)
 
-    def subscribe(self, topic, qos=0):
-        result, mid = self.client.subscribe(topic, qos)
+    def subscribe(self, topic, qos=0, options=None, properties=None):
+        """`options` (5.0) is a paho SubscribeOptions and replaces `qos`."""
+        if options is not None:
+            result, mid = self.client.subscribe(topic, options=options, properties=properties)
+        else:
+            result, mid = self.client.subscribe(topic, qos, properties=properties)
         assert result == mqtt.MQTT_ERR_SUCCESS
         time.sleep(0.2)  # let SUBACK arrive before anything is published
 
-    def publish(self, topic, payload, qos=0, retain=False):
-        info = self.client.publish(topic, payload, qos=qos, retain=retain)
+    def publish(self, topic, payload, qos=0, retain=False, properties=None):
+        info = self.client.publish(topic, payload, qos=qos, retain=retain, properties=properties)
         info.wait_for_publish(5)
         return info
 

@@ -116,6 +116,7 @@ struct Publish {
     Bytes topic;
     uint16_t packetId = 0;  // QoS 1 / 2 only
     Bytes props;            // 5.0
+    Bytes extraProps;       // 5.0, encoding only: appended after `props`
     Bytes payload;
 };
 

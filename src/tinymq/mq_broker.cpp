@@ -7,6 +7,13 @@
 
 namespace tinymq {
 
+// Properties of an incoming PUBLISH that are not kept with the message:
+// the alias is the connection's, subscription identifiers are added per
+// delivery, and the expiry is kept as a time and sent as what is left.
+static const uint8_t kNotKept[] = {kTopicAlias, kSubscriptionIdentifier, kMessageExpiryInterval};
+// A will's properties, likewise (the delay is the broker's business)
+static const uint8_t kWillNotKept[] = {kWillDelayInterval, kMessageExpiryInterval};
+
 Broker::Broker() : store_(pool_)
 {
     for (Conn &c : conns_) {
@@ -54,11 +61,20 @@ void Broker::setMaxQos(uint8_t qos)
     maxQos_ = qos < cap ? qos : cap;
 }
 
+void Broker::tick(uint32_t now)
+{
+    now_ = now;
+    tickRest_ += now - lastTickMs_;
+    lastTickMs_ = now;
+    seconds_ += tickRest_ / 1000;
+    tickRest_ %= 1000;
+}
+
 // ---- listener side
 
 int Broker::accept(Link &link, uint32_t now)
 {
-    now_ = now;
+    tick(now);
     for (int i = 0; i < TINYMQ_BROKER_MAX_CLIENTS; ++i) {
         Conn &c = conns_[i];
         if (c.state != kFree)
@@ -68,10 +84,16 @@ int Broker::accept(Link &link, uint32_t now)
         c.version = kMqtt311;
         c.session = kNone;
         c.keepAlive = 0;
+        c.receiveMax = 0xFFFF;
+        c.maxPacket = 0xFFFFFFFF;
         c.lastRx = now;
         c.openedAt = now;
         c.rxLen = 0;
         c.broken = false;
+#if TINYMQ_BROKER_TOPIC_ALIAS_MAX > 0
+        for (uint32_t &a : c.alias)
+            a = Pool::kNull;
+#endif
         return i;
     }
     return -1;
@@ -85,7 +107,7 @@ uint8_t *Broker::rxBuffer(int conn, size_t &room)
 
 void Broker::rxCommit(int conn, size_t n, uint32_t now)
 {
-    now_ = now;
+    tick(now);
     Conn &c = conns_[conn];
     if (c.state == kFree)
         return;
@@ -98,8 +120,12 @@ void Broker::rxCommit(int conn, size_t n, uint32_t now)
         if (r == HeaderResult::NeedMore)
             break;
         size_t total = h.size + (size_t)h.remaining;
-        if (r == HeaderResult::Malformed || total > sizeof(rx_[0])) {
-            closeConn(conn, true);
+        if (r == HeaderResult::Malformed) {
+            closeConn(conn, true, kMalformedPacket);
+            break;
+        }
+        if (total > sizeof(rx_[0])) {
+            closeConn(conn, true, kPacketTooLarge);
             break;
         }
         if (total > c.rxLen - pos)
@@ -123,22 +149,27 @@ void Broker::linkLost(int conn)
 
 void Broker::poll(uint32_t now)
 {
-    now_ = now;
+    tick(now);
     for (int i = 0; i < TINYMQ_BROKER_MAX_CLIENTS; ++i) {
         Conn &c = conns_[i];
         if (c.state == kWaitConnect && now - c.openedAt >= connectTimeout_)
             closeConn(i, false);
         else if (c.state == kActive && c.keepAlive && now - c.lastRx >= (uint32_t)c.keepAlive * 1500)
-            closeConn(i, true);
+            closeConn(i, true, kKeepAliveTimeout);
     }
     reapBroken();
-    if (sessionExpiry_) {
-        for (int s = 0; s < TINYMQ_BROKER_MAX_SESSIONS; ++s) {
-            Session &ss = sessions_[s];
-            if (ss.used && ss.conn == kNone && now - ss.lastSeen >= sessionExpiry_ * 1000)
-                destroySession(s);
+    for (int s = 0; s < TINYMQ_BROKER_MAX_SESSIONS; ++s) {
+        Session &ss = sessions_[s];
+        if (!ss.used || ss.conn != kNone)
+            continue;
+        if (ss.willPending && (int32_t)(seconds_ - ss.willAt) >= 0)
+            publishWill(s);
+        if (ss.expiry != kNever && seconds_ - ss.lastSeen >= ss.expiry) {
+            publishWill(s);  // a will still delayed goes out as the session ends
+            destroySession(s);
         }
     }
+    reapBroken();
     if (pendingFlush_) {
         pendingFlush_ = false;
         for (int s = 0; s < TINYMQ_BROKER_MAX_SESSIONS; ++s)
@@ -242,12 +273,15 @@ bool Broker::publish(Bytes t, Bytes payload, uint8_t qos, bool retain)
 bool Broker::subscribe(const char *filter, uint8_t qos)
 {
     Bytes f(filter);
-    if (!validTopicFilter(f) || !validUtf8(f.data, f.len) || f.len > TINYMQ_MAX_TOPIC_LEN || qos > 2)
+    Bytes group, inner;
+    if (!validTopicFilter(f) || !validUtf8(f.data, f.len) || f.len > TINYMQ_MAX_TOPIC_LEN || qos > 2 || parseSharedFilter(f, group, inner))
         return false;
     bool replaced;
-    if (addSubscription(kLocal, f, qos, qos, replaced) < 0)
+    SubOptions o;
+    o.qos = qos;
+    if (addSubscription(kLocal, f, qos, o.encode(), 0, replaced) < 0)
         return false;
-    sendRetained(kLocal, f, qos);
+    sendRetained(kLocal, f, qos, 0);
     return true;
 }
 
@@ -332,24 +366,19 @@ void Broker::handlePacket(int conn, const FixedHeader &h, const uint8_t *body)
         break;
     case PacketType::Pingreq: {
         if (h.remaining != 0) {
-            closeConn(conn, true);
+            closeConn(conn, true, kMalformedPacket);
             break;
         }
         size_t n = encodePingresp(tx_, sizeof(tx_));
         send(conn, tx_, n);
         break;
     }
-    case PacketType::Disconnect: {
-        Disconnect d;
-        if (decodeDisconnect(h, body, h.remaining, c.version, d) != kSuccess) {
-            closeConn(conn, true);
-            break;
-        }
-        closeConn(conn, false);  // a normal disconnect discards the will
+    case PacketType::Disconnect:
+        handleDisconnect(conn, h, body, h.remaining);
         break;
-    }
     default:
-        closeConn(conn, true);  // a second CONNECT, or a packet only servers send
+        // a second CONNECT, AUTH (no enhanced authentication), or a packet only servers send
+        closeConn(conn, true, kProtocolError);
         break;
     }
 }
@@ -359,29 +388,57 @@ void Broker::handleConnect(int conn, const uint8_t *body, size_t len)
     Conn &c = conns_[conn];
     Connect cp;
     uint8_t r = decodeConnect(body, len, cp);
-    // 5.0 sessions arrive with Phase 6; until then the client hears that
-    // the version is not supported.
-    if (r == kUnsupportedProtocolVersion || (r == kSuccess && cp.version == kMqtt5)) {
+    if (r == kUnsupportedProtocolVersion || (r == kSuccess && cp.version == kMqtt5 && !TINYMQ_ENABLE_MQTT5)) {
         sendConnack(conn, kMqtt311, kUnsupportedProtocolVersion, false);
         closeConn(conn, false);
         return;
     }
-    if (r != kSuccess || (cp.hasWill && (!validTopicName(cp.willTopic) || cp.willTopic.len > TINYMQ_MAX_TOPIC_LEN))) {
+    bool v5 = r == kSuccess && cp.version == kMqtt5;
+    if (r == kSuccess && v5) {
+        r = checkProps(cp.props, kInConnect);
+        if (r == kSuccess && cp.hasWill)
+            r = checkProps(cp.willProps, kInWill);
+    }
+    if (r == kSuccess && cp.hasWill && (!validTopicName(cp.willTopic) || cp.willTopic.len > TINYMQ_MAX_TOPIC_LEN))
+        r = kTopicNameInvalid;
+    if (r != kSuccess) {
+        if (v5)
+            sendConnack(conn, kMqtt5, r, false);  // 3.1.1 has no code for these: just close
         closeConn(conn, false);
         return;
     }
     c.version = cp.version;
 
+    Property p;
+    uint32_t expiry;
+    if (v5) {
+        if (findProp(cp.props, kAuthenticationMethod, p)) {
+            sendConnack(conn, c.version, kBadAuthenticationMethod, false);
+            closeConn(conn, false);
+            return;
+        }
+        expiry = findProp(cp.props, kSessionExpiryInterval, p) ? p.value : 0;
+        c.receiveMax = findProp(cp.props, kReceiveMaximum, p) ? (uint16_t)p.value : 0xFFFF;
+        c.maxPacket = findProp(cp.props, kMaximumPacketSize, p) ? p.value : 0xFFFFFFFF;
+    } else {
+        expiry = cp.cleanStart ? 0 : kNever;
+    }
+    bool capped = sessionExpiry_ && expiry > sessionExpiry_;
+    if (capped)
+        expiry = sessionExpiry_;
+
     char generated[24];
     Bytes id = cp.clientId;
+    bool assigned = false;
     if (id.len == 0) {
-        if (!cp.cleanStart || cp.version == kMqtt31) {
+        if ((!v5 && !cp.cleanStart) || cp.version == kMqtt31) {
             sendConnack(conn, c.version, kClientIdentifierNotValid, false);
             closeConn(conn, false);
             return;
         }
         snprintf(generated, sizeof(generated), "tinymq-%08lx", (unsigned long)++generatedIds_);
         id = Bytes(generated);
+        assigned = true;
     }
 
     if (onAuth_) {
@@ -392,6 +449,7 @@ void Broker::handleConnect(int conn, const uint8_t *body, size_t len)
         info.hasPassword = cp.hasPassword;
         info.password = cp.password;
         info.version = cp.version;
+        info.props = cp.props;
         uint8_t reason = onAuth_(info, onAuthCtx_);
         if (reason != kSuccess) {
             sendConnack(conn, c.version, reason, false);
@@ -403,17 +461,27 @@ void Broker::handleConnect(int conn, const uint8_t *body, size_t len)
     // the same client id connected elsewhere: that connection ends
     int s = findSession(id);
     if (s >= 0 && sessions_[s].conn != kNone) {
-        closeConn(sessions_[s].conn, true);
+        closeConn(sessions_[s].conn, true, kSessionTakenOver);
         s = findSession(id);
     }
     if (s >= 0 && cp.cleanStart) {
+        publishWill(s);  // a delayed will of the old session goes out now
         destroySession(s);
         s = -1;
     }
     bool present = s >= 0;
     uint32_t will = Pool::kNull;
+    uint32_t willDelay = 0;
     if (cp.hasWill) {
-        will = store_.create(cp.willTopic, Bytes(), cp.willPayload, cp.willQos, cp.willRetain);
+        uint8_t buf[256];
+        PropWriter w(buf, sizeof(buf));
+        w.copy(cp.willProps, kWillNotKept, sizeof(kWillNotKept));
+        uint32_t willExpiry = 0;
+        if (findProp(cp.willProps, kMessageExpiryInterval, p))
+            willExpiry = p.value;  // counted from when the will is published: kept as an interval here
+        if (findProp(cp.willProps, kWillDelayInterval, p))
+            willDelay = p.value;
+        will = w.ok() ? store_.create(cp.willTopic, w.result(), cp.willPayload, cp.willQos, cp.willRetain, willExpiry) : Pool::kNull;
         if (will == Pool::kNull) {
             sendConnack(conn, c.version, kServerUnavailable, false);
             closeConn(conn, false);
@@ -435,18 +503,43 @@ void Broker::handleConnect(int conn, const uint8_t *body, size_t len)
         sessions_[s].clientIdLen = (uint16_t)id.len;
     }
     Session &ss = sessions_[s];
-    ss.clean = cp.cleanStart;
+    if (ss.willPending) {
+        // back before the delayed will was due: it is not published
+        store_.release(ss.will);
+        ss.will = Pool::kNull;
+        ss.willPending = false;
+    }
+    ss.version = c.version;
+    ss.expiry = expiry;
     ss.conn = (uint16_t)conn;
     pool_.free(ss.username);
     ss.username = cp.hasUsername ? storeString(cp.username) : Pool::kNull;
     ss.usernameLen = ss.username != Pool::kNull ? (uint16_t)cp.username.len : 0;
     store_.release(ss.will);
     ss.will = will;
+    ss.willDelay = willDelay;
 
     c.state = kActive;
     c.session = (uint16_t)s;
     c.keepAlive = cp.keepAlive;
-    sendConnack(conn, c.version, kSuccess, present);
+    uint8_t propBuf[64];
+    PropWriter cw(propBuf, sizeof(propBuf));
+    if (v5) {
+        if (capped)
+            cw.u32(kSessionExpiryInterval, expiry);
+        if (assigned)
+            cw.string(kAssignedClientIdentifier, id);
+        cw.u16(kReceiveMaximum, TINYMQ_BROKER_MAX_QOS2_IN);
+        cw.u32(kMaximumPacketSize, sizeof(rx_[0]));
+#if TINYMQ_BROKER_TOPIC_ALIAS_MAX > 0
+        cw.u16(kTopicAliasMaximum, TINYMQ_BROKER_TOPIC_ALIAS_MAX);
+#endif
+        if (!retainAvailable_)
+            cw.byte(kRetainAvailable, 0);
+        if (!TINYMQ_ENABLE_SHARED_SUB)
+            cw.byte(kSharedSubscriptionAvailable, 0);
+    }
+    sendConnack(conn, c.version, kSuccess, present, cw.result());
     if (onClient_)
         onClient_(string(ss.clientId, ss.clientIdLen), true, onClientCtx_);
     if (present)
@@ -457,9 +550,57 @@ void Broker::handleConnect(int conn, const uint8_t *body, size_t len)
 void Broker::handlePublish(int conn, const FixedHeader &h, const uint8_t *body, size_t len)
 {
     Conn &c = conns_[conn];
+    bool v5 = c.version == kMqtt5;
     Publish p;
-    if (decodePublish(h, body, len, c.version, p) != kSuccess || !validTopicName(p.topic)) {
-        closeConn(conn, true);
+    uint8_t r = decodePublish(h, body, len, c.version, p);
+    Property prop;
+    if (r == kSuccess && v5) {
+        r = checkProps(p.props, kInPublish);
+        if (r == kSuccess && findProp(p.props, kSubscriptionIdentifier, prop))
+            r = kProtocolError;  // only servers send it
+    }
+    if (r != kSuccess) {
+        closeConn(conn, true, r);
+        return;
+    }
+    Bytes topic = p.topic;
+    if (v5 && findProp(p.props, kTopicAlias, prop)) {
+#if TINYMQ_BROKER_TOPIC_ALIAS_MAX > 0
+        if (prop.value > TINYMQ_BROKER_TOPIC_ALIAS_MAX) {
+            closeConn(conn, true, kTopicAliasInvalid);
+            return;
+        }
+        uint32_t &a = c.alias[prop.value - 1];
+        uint16_t &alen = c.aliasLen[prop.value - 1];
+        if (topic.len) {
+            if (topic.len > TINYMQ_MAX_TOPIC_LEN || !validTopicName(topic)) {
+                closeConn(conn, true, kTopicNameInvalid);
+                return;
+            }
+            pool_.free(a);
+            a = storeString(topic);
+            alen = (uint16_t)topic.len;
+            if (a == Pool::kNull) {
+                closeConn(conn, true, kServerBusy);
+                return;
+            }
+        } else if (a == Pool::kNull) {
+            closeConn(conn, true, kProtocolError);
+            return;
+        } else {
+            topic = string(a, alen);
+        }
+#else
+        closeConn(conn, true, kTopicAliasInvalid);
+        return;
+#endif
+    }
+    if (!validTopicName(topic)) {
+        closeConn(conn, true, v5 ? kTopicNameInvalid : kMalformedPacket);
+        return;
+    }
+    if (v5 && p.retain && !retainAvailable_) {
+        closeConn(conn, true, kRetainNotSupported);
         return;
     }
     Session &ss = sessions_[c.session];
@@ -469,67 +610,105 @@ void Broker::handlePublish(int conn, const FixedHeader &h, const uint8_t *body, 
             return;
         }
         if (ss.qos2InCount >= TINYMQ_BROKER_MAX_QOS2_IN) {
-            closeConn(conn, true);
+            closeConn(conn, true, kReceiveMaximumExceeded);
             return;
         }
-        ss.qos2In[ss.qos2InCount++] = p.packetId;
     }
-    bool sys = p.topic.len >= 4 && memcmp(p.topic.data, "$SYS", 4) == 0;
-    if (!sys && p.topic.len <= TINYMQ_MAX_TOPIC_LEN && allowed(c.session, p.topic, false))
-        deliver(c.session, p.topic, p.payload, p.qos, p.retain);
+    uint8_t reason = kSuccess;
+    if (v5 && findProp(p.props, kPayloadFormatIndicator, prop) && prop.value == 1 && !validUtf8(p.payload.data, p.payload.len))
+        reason = kPayloadFormatInvalid;
+    else if (topic.len > TINYMQ_MAX_TOPIC_LEN || (topic.len >= 4 && memcmp(topic.data, "$SYS", 4) == 0))
+        reason = kSuccess;  // accepted and dropped
+    else if (!allowed(c.session, topic, false))
+        reason = kNotAuthorized;
+    else {
+        uint32_t expiry = 0;
+        if (v5 && findProp(p.props, kMessageExpiryInterval, prop))
+            expiry = seconds_ + prop.value;  // seconds_ starts at 1: 0 stays "no expiry"
+        uint8_t keep[256];
+        Bytes props;
+        if (v5 && p.props.len) {
+            PropWriter w(keep, sizeof(keep));
+            w.copy(p.props, kNotKept, sizeof(kNotKept));
+            props = w.ok() ? w.result() : Bytes();
+        }
+        if (!deliver(c.session, topic, p.payload, p.qos, p.retain, props, expiry))
+            reason = kNoMatchingSubscribers;
+    }
+    if (reason == kPayloadFormatInvalid && p.qos == 0) {
+        closeConn(conn, true, reason);
+        return;
+    }
+    if (p.qos == 2 && reason < 0x80)
+        ss.qos2In[ss.qos2InCount++] = p.packetId;
     if (p.qos == 1)
-        sendAck(conn, PacketType::Puback, p.packetId);
+        sendAck(conn, PacketType::Puback, p.packetId, reason);
     else if (p.qos == 2)
-        sendAck(conn, PacketType::Pubrec, p.packetId);
+        sendAck(conn, PacketType::Pubrec, p.packetId, reason);
 }
 
 void Broker::handleAck(int conn, const FixedHeader &h, const uint8_t *body, size_t len)
 {
     Conn &c = conns_[conn];
     Ack a;
-    if (decodeAck(h, body, len, c.version, a) != kSuccess) {
-        closeConn(conn, true);
+    uint8_t r = decodeAck(h, body, len, c.version, a);
+    if (r == kSuccess && c.version == kMqtt5)
+        r = checkProps(a.props, kInAck);
+    if (r != kSuccess) {
+        closeConn(conn, true, r);
         return;
     }
     int s = c.session;
     Session &ss = sessions_[s];
     if (h.type == PacketType::Pubrel) {
+        bool found = false;
         for (uint8_t i = 0; i < ss.qos2InCount; ++i)
             if (ss.qos2In[i] == a.packetId) {
                 ss.qos2In[i] = ss.qos2In[--ss.qos2InCount];
+                found = true;
                 break;
             }
-        sendAck(conn, PacketType::Pubcomp, a.packetId);
+        sendAck(conn, PacketType::Pubcomp, a.packetId, found ? kSuccess : kPacketIdentifierNotFound);
         return;
     }
     uint8_t want = h.type == PacketType::Puback ? kWaitPuback : h.type == PacketType::Pubrec ? kWaitPubrec : kWaitPubcomp;
+    bool found = false;
     for (int i = 0; i < ss.queued; ++i) {
         Entry &e = ss.queue[i];
         if (e.state != want || e.packetId != a.packetId)
             continue;
-        if (h.type == PacketType::Pubrec) {
+        found = true;
+        if (h.type == PacketType::Pubrec && a.reason < 0x80) {
             store_.release(e.msg);
             e.msg = Pool::kNull;
             e.state = kWaitPubcomp;
         } else {
+            // done (PUBACK, PUBCOMP, or a PUBREC refusing it)
             removeEntry(ss, i);
             --ss.inflight;
             flush(s);
         }
         break;
     }
-    if (h.type == PacketType::Pubrec)
-        sendAck(conn, PacketType::Pubrel, a.packetId);
+    if (h.type == PacketType::Pubrec && (a.reason < 0x80 || c.version != kMqtt5))
+        sendAck(conn, PacketType::Pubrel, a.packetId, found || c.version != kMqtt5 ? kSuccess : kPacketIdentifierNotFound);
 }
 
 void Broker::handleSubscribe(int conn, const uint8_t *body, size_t len)
 {
     Conn &c = conns_[conn];
+    bool v5 = c.version == kMqtt5;
     Subscribe sp;
-    if (decodeSubscribe(body, len, c.version, sp) != kSuccess) {
-        closeConn(conn, true);
+    uint8_t r = decodeSubscribe(body, len, c.version, sp);
+    if (r == kSuccess && v5)
+        r = checkProps(sp.props, kInSubscribe);
+    if (r != kSuccess) {
+        closeConn(conn, true, r);
         return;
     }
+    Property prop;
+    uint32_t subId = v5 && findProp(sp.props, kSubscriptionIdentifier, prop) ? prop.value : 0;
+
     // the reason codes are collected at the end of tx_; encoding moves them
     // forward into the SUBACK (Writer uses memmove)
     size_t count = 0;
@@ -538,20 +717,44 @@ void Broker::handleSubscribe(int conn, const uint8_t *body, size_t len)
     SubOptions opts;
     while (nextSubscription(sp, pos, filter, opts))
         ++count;
-    if (count + 16 > sizeof(tx_)) {
-        closeConn(conn, true);
+    if (count + 16 > sizeof(tx_) || count > 64) {
+        closeConn(conn, true, kQuotaExceeded);
         return;
     }
+    bool sendOld[64];
     uint8_t *codes = tx_ + sizeof(tx_) - count;
     pos = 0;
     for (size_t i = 0; nextSubscription(sp, pos, filter, opts); ++i) {
-        codes[i] = 0x80;
-        if (!validTopicFilter(filter) || filter.len > TINYMQ_MAX_TOPIC_LEN || !allowed(c.session, filter, true))
+        sendOld[i] = false;
+        Bytes group, inner;
+        bool shared = parseSharedFilter(filter, group, inner);
+        if (shared && v5 && opts.noLocal) {
+            closeConn(conn, true, kProtocolError);  // No Local on a shared subscription
+            return;
+        }
+        if (!validTopicFilter(filter) || filter.len > TINYMQ_MAX_TOPIC_LEN || (shared && group.len == 0) || (shared && !validTopicFilter(inner))) {
+            codes[i] = v5 ? kTopicFilterInvalid : 0x80;
             continue;
+        }
+        if (shared && !TINYMQ_ENABLE_SHARED_SUB) {
+            codes[i] = v5 ? kSharedSubscriptionsNotSupported : 0x80;
+            continue;
+        }
+        if (!allowed(c.session, filter, true)) {
+            codes[i] = v5 ? kNotAuthorized : 0x80;
+            continue;
+        }
         uint8_t granted = opts.qos < maxQos_ ? opts.qos : maxQos_;
+        if (!v5)
+            opts = SubOptions();
+        opts.qos = granted;
         bool replaced;
-        if (addSubscription(c.session, filter, granted, opts.encode(), replaced) >= 0)
-            codes[i] = granted;
+        if (addSubscription(c.session, filter, granted, opts.encode(), subId, replaced) < 0) {
+            codes[i] = v5 ? kQuotaExceeded : 0x80;
+            continue;
+        }
+        codes[i] = granted;
+        sendOld[i] = !shared && (opts.retainHandling == 0 || (opts.retainHandling == 1 && !replaced));
     }
     SubAck a;
     a.packetId = sp.packetId;
@@ -559,40 +762,82 @@ void Broker::handleSubscribe(int conn, const uint8_t *body, size_t len)
     size_t n = encodeSubAck(tx_, sizeof(tx_), c.version, PacketType::Suback, a);
     // the codes were overwritten by the SUBACK; read them back from it
     uint8_t granted[64];
-    size_t keep = count < sizeof(granted) ? count : sizeof(granted);
-    memcpy(granted, tx_ + n - count, keep);
+    memcpy(granted, tx_ + n - count, count);
     if (!send(conn, tx_, n))
         return;
-    // retained messages for each new subscription, after the SUBACK
+    // retained messages for the subscriptions, after the SUBACK
     pos = 0;
-    for (size_t i = 0; i < keep && nextSubscription(sp, pos, filter, opts); ++i)
-        if (granted[i] < 0x80)
-            sendRetained(c.session, filter, granted[i]);
+    for (size_t i = 0; i < count && nextSubscription(sp, pos, filter, opts); ++i)
+        if (sendOld[i])
+            sendRetained(c.session, filter, granted[i], subId);
 }
 
 void Broker::handleUnsubscribe(int conn, const uint8_t *body, size_t len)
 {
     Conn &c = conns_[conn];
     Unsubscribe u;
-    if (decodeUnsubscribe(body, len, c.version, u) != kSuccess) {
-        closeConn(conn, true);
+    uint8_t r = decodeUnsubscribe(body, len, c.version, u);
+    if (r == kSuccess && c.version == kMqtt5)
+        r = checkProps(u.props, kInUnsubscribe);
+    if (r != kSuccess) {
+        closeConn(conn, true, r);
         return;
     }
+    size_t count = 0;
     size_t pos = 0;
     Bytes filter;
     while (nextUnsubscription(u, pos, filter))
-        removeSubscription(c.session, filter);
+        ++count;
+    if (count + 16 > sizeof(tx_)) {
+        closeConn(conn, true, kQuotaExceeded);
+        return;
+    }
+    uint8_t *codes = tx_ + sizeof(tx_) - count;
+    pos = 0;
+    for (size_t i = 0; nextUnsubscription(u, pos, filter); ++i)
+        codes[i] = removeSubscription(c.session, filter) ? kSuccess : kNoSubscriptionExisted;
     SubAck a;
     a.packetId = u.packetId;
+    a.reasons = Bytes(codes, (uint32_t)count);
     size_t n = encodeSubAck(tx_, sizeof(tx_), c.version, PacketType::Unsuback, a);
     send(conn, tx_, n);
 }
 
-void Broker::closeConn(int conn, bool publishWill)
+void Broker::handleDisconnect(int conn, const FixedHeader &h, const uint8_t *body, size_t len)
+{
+    Conn &c = conns_[conn];
+    Disconnect d;
+    uint8_t r = decodeDisconnect(h, body, len, c.version, d);
+    if (r == kSuccess && c.version == kMqtt5)
+        r = checkProps(d.props, kInDisconnect);
+    if (r != kSuccess) {
+        closeConn(conn, true, r);
+        return;
+    }
+    Session &ss = sessions_[c.session];
+    Property p;
+    if (c.version == kMqtt5 && findProp(d.props, kSessionExpiryInterval, p)) {
+        if (ss.expiry == 0 && p.value != 0) {
+            closeConn(conn, true, kProtocolError);  // a session that ends cannot be kept now
+            return;
+        }
+        ss.expiry = sessionExpiry_ && p.value > sessionExpiry_ ? sessionExpiry_ : p.value;
+    }
+    // a normal disconnect discards the will; 5.0 can ask for it
+    closeConn(conn, d.reason == kDisconnectWithWill);
+}
+
+void Broker::closeConn(int conn, bool publishWillNow, uint8_t reason)
 {
     Conn &c = conns_[conn];
     if (c.state == kFree)
         return;
+    if (reason && c.version == kMqtt5 && c.state == kActive && !c.broken) {
+        Disconnect d;
+        d.reason = reason;
+        size_t n = encodeDisconnect(tx_, sizeof(tx_), kMqtt5, PacketType::Disconnect, d);
+        c.link->write(tx_, n);
+    }
     uint16_t s = c.session;
     Link *link = c.link;
     c.state = kFree;
@@ -600,20 +845,56 @@ void Broker::closeConn(int conn, bool publishWill)
     c.rxLen = 0;
     c.link = nullptr;
     c.broken = false;
+#if TINYMQ_BROKER_TOPIC_ALIAS_MAX > 0
+    for (uint32_t &a : c.alias) {
+        pool_.free(a);
+        a = Pool::kNull;
+    }
+#endif
     link->close();
     if (s == kNone)
         return;
     Session &ss = sessions_[s];
+    ss.conn = kNone;
+    ss.lastSeen = seconds_;
     if (ss.will != Pool::kNull) {
-        uint32_t will = ss.will;
-        ss.will = Pool::kNull;
-        if (publishWill)
-            route(s, will);
-        store_.release(will);
+        if (!publishWillNow) {
+            store_.release(ss.will);
+            ss.will = Pool::kNull;
+        } else if (ss.willDelay && ss.expiry) {
+            // published when the delay or the session ends, unless the client comes back
+            ss.willPending = true;
+            ss.willAt = seconds_ + (ss.willDelay < ss.expiry ? ss.willDelay : ss.expiry);
+        } else {
+            ss.willPending = true;
+            publishWill(s);
+        }
     }
     if (onClient_)
         onClient_(string(ss.clientId, ss.clientIdLen), false, onClientCtx_);
-    detachSession(s, now_);
+    detachSession(s);
+}
+
+void Broker::publishWill(int s)
+{
+    Session &ss = sessions_[s];
+    if (!ss.willPending || ss.will == Pool::kNull)
+        return;
+    uint32_t will = ss.will;
+    ss.will = Pool::kNull;
+    ss.willPending = false;
+    uint32_t interval = store_.expiry(will);  // kept as an interval until now
+    uint32_t msg = will;
+    if (interval) {
+        msg = store_.create(store_.topic(will), store_.props(will), store_.payload(will), store_.qos(will), store_.retain(will), seconds_ + interval);
+        store_.release(will);
+        if (msg == Pool::kNull) {
+            ++dropped_;
+            return;
+        }
+    }
+    route((uint16_t)s, msg);
+    store_.release(msg);
 }
 
 void Broker::reapBroken()
@@ -635,42 +916,69 @@ bool Broker::send(int conn, const uint8_t *data, size_t len)
     return true;
 }
 
-bool Broker::sendAck(int conn, PacketType type, uint16_t packetId)
+bool Broker::sendAck(int conn, PacketType type, uint16_t packetId, uint8_t reason)
 {
     Ack a;
     a.packetId = packetId;
+    a.reason = reason;
     size_t n = encodeAck(tx_, sizeof(tx_), conns_[conn].version, type, a);
     return send(conn, tx_, n);
 }
 
-bool Broker::sendConnack(int conn, uint8_t version, uint8_t reason, bool sessionPresent)
+bool Broker::sendConnack(int conn, uint8_t version, uint8_t reason, bool sessionPresent, Bytes props)
 {
     Connack a;
     a.reason = reason;
     a.sessionPresent = sessionPresent;
+    a.props = props;
     size_t n = encodeConnack(tx_, sizeof(tx_), version, a);
     return send(conn, tx_, n);
 }
 
-bool Broker::sendPublish(int conn, uint32_t msg, uint8_t qos, uint16_t packetId, bool retain, bool dup)
+bool Broker::expired(uint32_t msg) const
 {
+    uint32_t at = store_.expiry(msg);
+    return at && (int32_t)(seconds_ - at) >= 0;
+}
+
+int Broker::sendPublish(int conn, const Entry &e, bool dup)
+{
+    Conn &c = conns_[conn];
+    uint32_t msg = e.msg;
     Publish p;
     p.topic = store_.topic(msg);
     p.payload = store_.payload(msg);
-    p.qos = qos;
-    p.retain = retain;
+    p.qos = e.qos;
+    p.retain = e.retain;
     p.dup = dup;
-    p.packetId = packetId;
-    size_t head = encodePublishHead(tx_, sizeof(tx_), conns_[conn].version, p);
-    if (head == 0)
-        return false;
+    p.packetId = e.packetId;
+    uint8_t extra[16];
+    if (c.version == kMqtt5) {
+        p.props = store_.props(msg);
+        PropWriter w(extra, sizeof(extra));
+        uint32_t at = store_.expiry(msg);
+        if (at)
+            w.u32(kMessageExpiryInterval, (int32_t)(at - seconds_) > 0 ? at - seconds_ : 0);
+        if (e.subId)
+            w.varint(kSubscriptionIdentifier, e.subId);
+        p.extraProps = w.result();
+    }
+    size_t head = encodePublishHead(tx_, sizeof(tx_), c.version, p);
+    if (head == 0 || head + p.payload.len > c.maxPacket)
+        return 1;  // the client could not take it: as if delivered
     size_t len = p.payload.len;
     if (head + len <= sizeof(tx_)) {
         if (len)
             memcpy(tx_ + head, p.payload.data, len);
-        return send(conn, tx_, head + len);
+        return send(conn, tx_, head + len) ? 0 : -1;
     }
-    return send(conn, tx_, head) && send(conn, p.payload.data, len);
+    return send(conn, tx_, head) && send(conn, p.payload.data, len) ? 0 : -1;
+}
+
+uint8_t Broker::inflightLimit(int conn) const
+{
+    uint16_t m = conns_[conn].receiveMax;
+    return m < TINYMQ_BROKER_MAX_INFLIGHT ? (uint8_t)m : (uint8_t)TINYMQ_BROKER_MAX_INFLIGHT;
 }
 
 // ---- sessions
@@ -687,6 +995,7 @@ int Broker::findSession(Bytes clientId) const
 
 int Broker::newSession(uint32_t now)
 {
+    (void)now;
     int pick = -1;
     for (int s = 0; s < TINYMQ_BROKER_MAX_SESSIONS; ++s)
         if (!sessions_[s].used) {
@@ -698,25 +1007,29 @@ int Broker::newSession(uint32_t now)
         uint32_t oldest = 0;
         for (int s = 0; s < TINYMQ_BROKER_MAX_SESSIONS; ++s) {
             Session &ss = sessions_[s];
-            if (ss.conn == kNone && (pick < 0 || now - ss.lastSeen > oldest)) {
+            if (ss.conn == kNone && (pick < 0 || seconds_ - ss.lastSeen > oldest)) {
                 pick = s;
-                oldest = now - ss.lastSeen;
+                oldest = seconds_ - ss.lastSeen;
             }
         }
         if (pick < 0)
             return -1;
+        publishWill(pick);
         destroySession(pick);
     }
     Session &ss = sessions_[pick];
     ss.used = true;
-    ss.clean = true;
+    ss.version = kMqtt311;
     ss.conn = kNone;
     ss.clientId = Pool::kNull;
     ss.clientIdLen = 0;
     ss.username = Pool::kNull;
     ss.usernameLen = 0;
+    ss.expiry = 0;
     ss.will = Pool::kNull;
-    ss.lastSeen = now;
+    ss.willDelay = 0;
+    ss.willPending = false;
+    ss.lastSeen = seconds_;
     ss.lastPacketId = 0;
     ss.queued = 0;
     ss.inflight = 0;
@@ -730,6 +1043,7 @@ void Broker::destroySession(int s)
     for (Sub &sub : subs_)
         if (sub.session == s) {
             pool_.free(sub.filter);
+            pool_.free(sub.group);
             sub.session = kNone;
         }
     for (int i = 0; i < ss.queued; ++i)
@@ -739,17 +1053,17 @@ void Broker::destroySession(int s)
     ss.qos2InCount = 0;
     store_.release(ss.will);
     ss.will = Pool::kNull;
+    ss.willPending = false;
     pool_.free(ss.clientId);
     pool_.free(ss.username);
     ss.used = false;
 }
 
-void Broker::detachSession(int s, uint32_t now)
+void Broker::detachSession(int s)
 {
     Session &ss = sessions_[s];
-    ss.conn = kNone;
-    ss.lastSeen = now;
-    if (ss.clean) {
+    if (ss.expiry == 0) {
+        publishWill(s);
         destroySession(s);
         return;
     }
@@ -786,7 +1100,7 @@ bool Broker::qos2Known(const Session &ss, uint16_t id) const
     return false;
 }
 
-void Broker::enqueue(int s, uint32_t msg, uint8_t qos, bool retain)
+void Broker::enqueue(int s, uint32_t msg, uint8_t qos, bool retain, uint32_t subId)
 {
     Session &ss = sessions_[s];
     if (ss.conn == kNone && qos == 0)
@@ -798,6 +1112,7 @@ void Broker::enqueue(int s, uint32_t msg, uint8_t qos, bool retain)
     Entry &e = ss.queue[ss.queued++];
     store_.addRef(msg);
     e.msg = msg;
+    e.subId = subId;
     e.packetId = 0;
     e.qos = qos;
     e.state = kQueued;
@@ -821,30 +1136,40 @@ void Broker::flush(int s)
     Conn &c = conns_[conn];
     if (c.state != kActive)
         return;
+    uint8_t limit = inflightLimit(conn);
     for (int i = 0; i < ss.queued;) {
         Entry &e = ss.queue[i];
         if (e.state != kQueued) {
             ++i;
             continue;
         }
-        if (e.qos > 0 && ss.inflight >= TINYMQ_BROKER_MAX_INFLIGHT)
+        if (expired(e.msg)) {
+            removeEntry(ss, i);  // not started in time: dropped
+            continue;
+        }
+        if (e.qos > 0 && ss.inflight >= limit)
             break;  // later messages wait too, to keep the order
-        size_t need = 9 + store_.topic(e.msg).len + store_.payload(e.msg).len;
+        size_t need = 9 + store_.topic(e.msg).len + store_.props(e.msg).len + 16 + store_.payload(e.msg).len;
         if (c.link->writable() < need) {
             pendingFlush_ = true;
             break;
         }
         if (e.qos == 0) {
-            bool ok = sendPublish(conn, e.msg, 0, 0, e.retain, false);
+            int r = sendPublish(conn, e, false);
             removeEntry(ss, i);
-            if (!ok)
+            if (r < 0)
                 break;
             continue;
         }
         e.packetId = nextPacketId(ss);
+        int r = sendPublish(conn, e, false);
+        if (r == 1) {
+            removeEntry(ss, i);  // too large for this client
+            continue;
+        }
         e.state = e.qos == 1 ? kWaitPuback : kWaitPubrec;
         ++ss.inflight;
-        if (!sendPublish(conn, e.msg, e.qos, e.packetId, e.retain, false))
+        if (r < 0)
             break;
         ++i;
     }
@@ -859,13 +1184,13 @@ void Broker::resendInflight(int s)
         if (e.state == kWaitPubcomp)
             sendAck(conn, PacketType::Pubrel, e.packetId);
         else if (e.state != kQueued)
-            sendPublish(conn, e.msg, e.qos, e.packetId, e.retain, true);
+            sendPublish(conn, e, true);
     }
 }
 
 // ---- messages
 
-void Broker::deliver(uint16_t from, Bytes topic, Bytes payload, uint8_t qos, bool retain)
+bool Broker::deliver(uint16_t from, Bytes topic, Bytes payload, uint8_t qos, bool retain, Bytes props, uint32_t expiry)
 {
     if (!retain || !retainAvailable_) {
         // skip the copy when nobody would receive it
@@ -876,37 +1201,85 @@ void Broker::deliver(uint16_t from, Bytes topic, Bytes payload, uint8_t qos, boo
                 break;
             }
         if (!any)
-            return;
+            return false;
     }
-    uint32_t msg = store_.create(topic, Bytes(), payload, qos, retain);
+    uint32_t msg = store_.create(topic, props, payload, qos, retain, expiry);
     if (msg == Pool::kNull) {
         ++dropped_;
         if (retain && retainAvailable_ && payload.len == 0)
             storeRetained(Pool::kNull, topic);  // deleting needs no room
-        return;
+        return true;
     }
-    route(from, msg);
+    bool any = route(from, msg);
     store_.release(msg);
+    return any;
 }
 
-void Broker::route(uint16_t from, uint32_t msg)
+bool Broker::route(uint16_t from, uint32_t msg)
 {
-    (void)from;  // for No Local (5.0)
     Bytes topic = store_.topic(msg);
     uint8_t qos = store_.qos(msg);
-    if (store_.retain(msg) && retainAvailable_)
+    bool msgRetain = store_.retain(msg);
+    if (msgRetain && retainAvailable_)
         storeRetained(msg, topic);
+    if (expired(msg))
+        return false;
 
-    // one delivery per session, at the highest QoS of its matching subscriptions
+    // 3.1.1 sessions: one delivery at the highest QoS of their matching
+    // subscriptions. 5.0 sessions: one per subscription (each with its own
+    // identifier and options). Shared subscriptions: one member per group.
     uint8_t best[TINYMQ_BROKER_MAX_SESSIONS];
     memset(best, 0xFF, sizeof(best));
+    bool any = false;
     int local = -1;
-    for (const Sub &sub : subs_) {
+    for (int i = 0; i < TINYMQ_BROKER_MAX_SUBSCRIPTIONS; ++i) {
+        const Sub &sub = subs_[i];
         if (sub.session == kNone || !topicMatches(string(sub.filter, sub.filterLen), topic))
             continue;
+        any = true;
         if (sub.session == kLocal) {
             if (sub.qos > local)
                 local = sub.qos;
+            continue;
+        }
+        SubOptions o = SubOptions::decode(sub.options);
+        uint8_t q = qos < sub.qos ? qos : sub.qos;
+        if (sub.group != Pool::kNull) {
+            // the first matching member of a group picks one member for all
+            Bytes g = string(sub.group, sub.groupLen);
+            Bytes f = string(sub.filter, sub.filterLen);
+            bool done = false;
+            for (int j = 0; j < i && !done; ++j)
+                done = subs_[j].session != kNone && subs_[j].session != kLocal && subs_[j].group != Pool::kNull &&
+                       string(subs_[j].group, subs_[j].groupLen).equals(g) && string(subs_[j].filter, subs_[j].filterLen).equals(f);
+            if (done)
+                continue;
+            int members[16];
+            int count = 0, online = 0;
+            for (int j = i; j < TINYMQ_BROKER_MAX_SUBSCRIPTIONS && count < 16; ++j)
+                if (subs_[j].session != kNone && subs_[j].session != kLocal && subs_[j].group != Pool::kNull &&
+                    string(subs_[j].group, subs_[j].groupLen).equals(g) && string(subs_[j].filter, subs_[j].filterLen).equals(f)) {
+                    // online members first
+                    if (sessions_[subs_[j].session].conn != kNone) {
+                        for (int k = count; k > online; --k)
+                            members[k] = members[k - 1];
+                        members[online++] = j;
+                    } else {
+                        members[count] = j;
+                    }
+                    ++count;
+                }
+            const Sub &m = subs_[members[online ? sharedNext_ % online : sharedNext_ % count]];
+            ++sharedNext_;
+            enqueue(m.session, msg, qos < m.qos ? qos : m.qos, false, m.subId);
+            flush(m.session);
+            continue;
+        }
+        if (sessions_[sub.session].version == kMqtt5) {
+            if (o.noLocal && sub.session == from)
+                continue;
+            enqueue(sub.session, msg, q, o.retainAsPublished && msgRetain, sub.subId);
+            flush(sub.session);
         } else if (best[sub.session] == 0xFF || sub.qos > best[sub.session]) {
             best[sub.session] = sub.qos;
         }
@@ -919,6 +1292,7 @@ void Broker::route(uint16_t from, uint32_t msg)
     }
     if (local >= 0)
         deliverLocal(msg, qos < local ? qos : (uint8_t)local, false);
+    return any;
 }
 
 void Broker::storeRetained(uint32_t msg, Bytes topic)
@@ -948,16 +1322,23 @@ void Broker::storeRetained(uint32_t msg, Bytes topic)
     retained_[slot] = msg;
 }
 
-void Broker::sendRetained(uint16_t s, Bytes filter, uint8_t grantedQos)
+void Broker::sendRetained(uint16_t s, Bytes filter, uint8_t grantedQos, uint32_t subId)
 {
-    for (uint32_t r : retained_) {
-        if (r == Pool::kNull || !topicMatches(filter, store_.topic(r)))
+    for (uint32_t &r : retained_) {
+        if (r == Pool::kNull)
+            continue;
+        if (expired(r)) {
+            store_.release(r);
+            r = Pool::kNull;
+            continue;
+        }
+        if (!topicMatches(filter, store_.topic(r)))
             continue;
         uint8_t qos = store_.qos(r) < grantedQos ? store_.qos(r) : grantedQos;
         if (s == kLocal)
             deliverLocal(r, qos, true);
         else
-            enqueue(s, r, qos, true);
+            enqueue(s, r, qos, true, subId);
     }
     if (s != kLocal)
         flush(s);
@@ -979,52 +1360,69 @@ void Broker::deliverLocal(uint32_t msg, uint8_t qos, bool retain)
     m.qos = qos;
     m.retain = retain;
     m.dup = false;
-    m.props = Bytes();
+    m.props = store_.props(msg);
     onLocal_(m, onLocalCtx_);
 }
 
-int Broker::addSubscription(uint16_t s, Bytes filter, uint8_t qos, uint8_t options, bool &replaced)
+int Broker::findSubscription(uint16_t s, Bytes filter) const
 {
-    replaced = false;
-    int free = -1;
+    Bytes group, inner;
+    bool shared = parseSharedFilter(filter, group, inner);
+    Bytes f = shared ? inner : filter;
     for (int i = 0; i < TINYMQ_BROKER_MAX_SUBSCRIPTIONS; ++i) {
-        Sub &sub = subs_[i];
-        if (sub.session == kNone) {
-            if (free < 0)
-                free = i;
+        const Sub &sub = subs_[i];
+        if (sub.session != s || !string(sub.filter, sub.filterLen).equals(f))
             continue;
-        }
-        if (sub.session == s && string(sub.filter, sub.filterLen).equals(filter)) {
-            sub.qos = qos;
-            sub.options = options;
-            replaced = true;
+        if (shared ? (sub.group != Pool::kNull && string(sub.group, sub.groupLen).equals(group)) : sub.group == Pool::kNull)
             return i;
-        }
     }
-    if (free < 0)
+    return -1;
+}
+
+int Broker::addSubscription(uint16_t s, Bytes filter, uint8_t qos, uint8_t options, uint32_t subId, bool &replaced)
+{
+    int i = findSubscription(s, filter);
+    replaced = i >= 0;
+    if (replaced) {
+        subs_[i].qos = qos;
+        subs_[i].options = options;
+        subs_[i].subId = subId;
+        return i;
+    }
+    for (i = 0; i < TINYMQ_BROKER_MAX_SUBSCRIPTIONS && subs_[i].session != kNone; ++i) {
+    }
+    if (i == TINYMQ_BROKER_MAX_SUBSCRIPTIONS)
         return -1;
-    uint32_t h = storeString(filter);
-    if (h == Pool::kNull)
+    Bytes group, inner;
+    bool shared = parseSharedFilter(filter, group, inner);
+    uint32_t f = storeString(shared ? inner : filter);
+    uint32_t g = shared ? storeString(group) : Pool::kNull;
+    if (f == Pool::kNull || (shared && g == Pool::kNull)) {
+        pool_.free(f);
+        pool_.free(g);
         return -1;
-    Sub &sub = subs_[free];
+    }
+    Sub &sub = subs_[i];
     sub.session = s;
     sub.qos = qos;
     sub.options = options;
-    sub.filter = h;
-    sub.filterLen = (uint16_t)filter.len;
-    return free;
+    sub.subId = subId;
+    sub.filter = f;
+    sub.filterLen = (uint16_t)(shared ? inner.len : filter.len);
+    sub.group = g;
+    sub.groupLen = (uint16_t)group.len;
+    return i;
 }
 
 bool Broker::removeSubscription(uint16_t s, Bytes filter)
 {
-    for (Sub &sub : subs_) {
-        if (sub.session == s && string(sub.filter, sub.filterLen).equals(filter)) {
-            pool_.free(sub.filter);
-            sub.session = kNone;
-            return true;
-        }
-    }
-    return false;
+    int i = findSubscription(s, filter);
+    if (i < 0)
+        return false;
+    pool_.free(subs_[i].filter);
+    pool_.free(subs_[i].group);
+    subs_[i].session = kNone;
+    return true;
 }
 
 bool Broker::allowed(int s, Bytes topic, bool subscribe)

@@ -13,3 +13,5 @@
 - (JA) ブローカーの MQTT-SN 1.2 ゲートウェイ(任意の Arduino UDP の上で動く TinyMQSnListener): トピックの登録、事前定義トピックと短いトピック名、QoS -1 〜 2、will、スリープするクライアント、UDP での再送。
 - (EN) TinyMQClientSn: MQTT-SN 1.2 client over any Arduino UDP, with build-time levels (QoS -1 only / standard / full with QoS 2, will, sleep and gateway search).
 - (JA) TinyMQClientSn: 任意の Arduino UDP の上の MQTT-SN 1.2 クライアント。ビルド時に段階を選べる(QoS -1 のみ / 標準 / QoS 2・will・スリープ・ゲートウェイ探索まで)。
+- (EN) MQTT 5.0 in the broker: properties, session and message expiry, will delay, subscription identifiers and options, shared subscriptions, topic aliases from clients, flow control, reason codes.
+- (JA) ブローカーの MQTT 5.0 対応: プロパティ、セッションとメッセージの有効期限、Will Delay、購読識別子と購読オプション、共有購読、クライアントからのトピックエイリアス、フロー制御、理由コード。

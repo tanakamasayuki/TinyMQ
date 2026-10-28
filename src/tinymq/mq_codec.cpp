@@ -528,8 +528,11 @@ static void publishHead(Writer &w, uint8_t version, const Publish &p)
     w.str(p.topic);
     if (p.qos)
         w.u16(p.packetId);
-    if (version == kMqtt5)
-        writeProps(w, p.props);
+    if (version == kMqtt5) {
+        w.varint(p.props.len + p.extraProps.len);
+        w.raw(p.props);
+        w.raw(p.extraProps);
+    }
 }
 
 size_t encodePublish(uint8_t *buf, size_t cap, uint8_t version, const Publish &p)

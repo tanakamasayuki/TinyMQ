@@ -76,6 +76,22 @@
 #define TINYMQ_BROKER_POOL_BYTES 16384
 #endif
 
+// Accept MQTT 5.0 clients
+#ifndef TINYMQ_ENABLE_MQTT5
+#define TINYMQ_ENABLE_MQTT5 1
+#endif
+
+// Shared subscriptions ($share/<group>/<filter>)
+#ifndef TINYMQ_ENABLE_SHARED_SUB
+#define TINYMQ_ENABLE_SHARED_SUB 1
+#endif
+
+// Topic aliases a 5.0 client may use towards the broker, per connection
+// (0: none)
+#ifndef TINYMQ_BROKER_TOPIC_ALIAS_MAX
+#define TINYMQ_BROKER_TOPIC_ALIAS_MAX 8
+#endif
+
 // Include QoS 2 delivery to subscribers (receiving QoS 2 is always supported)
 #ifndef TINYMQ_ENABLE_QOS2_DELIVERY
 #define TINYMQ_ENABLE_QOS2_DELIVERY 1

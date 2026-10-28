@@ -11,6 +11,7 @@
 #include "mq_codec.h"
 #include "mq_config.h"
 #include "mq_pool.h"
+#include "mq_props.h"
 
 namespace tinymq {
 
@@ -22,6 +23,7 @@ struct ConnectInfo {
     bool hasPassword;
     Bytes password;
     uint8_t version;
+    Bytes props;  // 5.0 CONNECT properties (user properties, ...)
 };
 
 class Broker {
@@ -49,7 +51,10 @@ public:
     void setMaxQos(uint8_t qos);                         // highest QoS granted to subscribers (default 2)
     void setConnectTimeout(uint32_t ms) { connectTimeout_ = ms; }  // from accept() to CONNECT (default 10 s)
     void setRetainAvailable(bool on) { retainAvailable_ = on; }    // false: retained messages are not kept
-    void setSessionExpiry(uint32_t seconds) { sessionExpiry_ = seconds; }  // offline sessions; 0 (default): kept until evicted
+    // Longest a session outlives its connection (5.0 clients ask for theirs;
+    // 3.1.1 persistent sessions take this). 0 (default): no limit, kept
+    // until evicted for a new session.
+    void setSessionExpiry(uint32_t seconds) { sessionExpiry_ = seconds; }
     void onAuthenticate(AuthHandler h, void *context = nullptr) { onAuth_ = h; onAuthCtx_ = context; }
     void onAuthorize(AclHandler h, void *context = nullptr) { onAcl_ = h; onAclCtx_ = context; }
     void onClient(ClientHandler h, void *context = nullptr) { onClient_ = h; onClientCtx_ = context; }
@@ -98,20 +103,29 @@ private:
     enum EntryState : uint8_t { kQueued, kWaitPuback, kWaitPubrec, kWaitPubcomp };
     static const uint16_t kLocal = 0xFFFE;
 
+    static const uint32_t kNever = 0xFFFFFFFF;
+
     struct Conn {
         Link *link;
         uint8_t state;
         uint8_t version;
         uint16_t session;
         uint16_t keepAlive;
+        uint16_t receiveMax;  // 5.0: QoS 1 / 2 deliveries the client takes at once
+        uint32_t maxPacket;   // 5.0: largest packet the client takes
         uint32_t lastRx;
         uint32_t openedAt;
         size_t rxLen;
         bool broken;  // a write failed; closed by reapBroken()
+#if TINYMQ_BROKER_TOPIC_ALIAS_MAX > 0
+        uint32_t alias[TINYMQ_BROKER_TOPIC_ALIAS_MAX];  // topics by alias - 1 (pool handles)
+        uint16_t aliasLen[TINYMQ_BROKER_TOPIC_ALIAS_MAX];
+#endif
     };
 
     struct Entry {
         uint32_t msg;       // kNull once PUBREC arrived
+        uint32_t subId;     // 5.0 subscription identifier, 0 if none
         uint16_t packetId;  // 0 while queued
         uint8_t qos;
         uint8_t state;
@@ -120,14 +134,18 @@ private:
 
     struct Session {
         bool used;
-        bool clean;
+        uint8_t version;
         uint16_t conn;
         uint32_t clientId;  // pool handles of the strings
         uint16_t clientIdLen;
         uint32_t username;
         uint16_t usernameLen;
+        uint32_t expiry;    // seconds the session outlives its connection; kNever
         uint32_t will;      // message, kNull if none
-        uint32_t lastSeen;
+        uint32_t willDelay; // seconds
+        uint32_t willAt;    // when a delayed will is due (seconds), if willPending
+        bool willPending;
+        uint32_t lastSeen;  // seconds
         uint16_t lastPacketId;
         uint8_t queued;
         uint8_t inflight;
@@ -139,9 +157,12 @@ private:
     struct Sub {
         uint16_t session;  // kNone when free
         uint8_t qos;
-        uint8_t options;
-        uint32_t filter;   // pool handle
+        uint8_t options;   // SubOptions::encode()
+        uint32_t subId;    // 5.0 subscription identifier, 0 if none
+        uint32_t filter;   // pool handle (without $share/<group>/)
         uint16_t filterLen;
+        uint32_t group;    // shared subscription group, kNull if not shared
+        uint16_t groupLen;
     };
 
     // strings in the pool
@@ -155,34 +176,44 @@ private:
     void handleAck(int conn, const FixedHeader &h, const uint8_t *body, size_t len);
     void handleSubscribe(int conn, const uint8_t *body, size_t len);
     void handleUnsubscribe(int conn, const uint8_t *body, size_t len);
-    void closeConn(int conn, bool publishWill);
+    void handleDisconnect(int conn, const FixedHeader &h, const uint8_t *body, size_t len);
+    // Ends a connection; a 5.0 client is told `reason` first (when nonzero)
+    void closeConn(int conn, bool publishWill, uint8_t reason = 0);
     void reapBroken();
     bool send(int conn, const uint8_t *data, size_t len);
-    bool sendAck(int conn, PacketType type, uint16_t packetId);
-    bool sendConnack(int conn, uint8_t version, uint8_t reason, bool sessionPresent);
-    bool sendPublish(int conn, uint32_t msg, uint8_t qos, uint16_t packetId, bool retain, bool dup);
+    bool sendAck(int conn, PacketType type, uint16_t packetId, uint8_t reason = kSuccess);
+    bool sendConnack(int conn, uint8_t version, uint8_t reason, bool sessionPresent, Bytes props = Bytes());
+    // 0: sent, 1: dropped (expired or too large for the client), -1: write failed
+    int sendPublish(int conn, const Entry &e, bool dup);
+    uint8_t inflightLimit(int conn) const;
 
     // sessions
     int findSession(Bytes clientId) const;
     int newSession(uint32_t now);
     void destroySession(int s);
     void clearSessionState(int s);
-    void detachSession(int s, uint32_t now);
+    void detachSession(int s);
+    void publishWill(int s);
+    void tick(uint32_t now);
     uint16_t nextPacketId(Session &ss);
     bool qos2Known(const Session &ss, uint16_t id) const;
-    void enqueue(int s, uint32_t msg, uint8_t qos, bool retain);
+    void enqueue(int s, uint32_t msg, uint8_t qos, bool retain, uint32_t subId = 0);
     void removeEntry(Session &ss, int i);
     void flush(int s);
     void resendInflight(int s);
 
     // messages
-    void deliver(uint16_t from, Bytes topic, Bytes payload, uint8_t qos, bool retain);
-    void route(uint16_t from, uint32_t msg);
+    // Whether any subscriber took it
+    bool deliver(uint16_t from, Bytes topic, Bytes payload, uint8_t qos, bool retain, Bytes props = Bytes(), uint32_t expiry = 0);
+    bool route(uint16_t from, uint32_t msg);
+    bool expired(uint32_t msg) const;
     void storeRetained(uint32_t msg, Bytes topic);  // msg kNull or empty: delete
-    void sendRetained(uint16_t s, Bytes filter, uint8_t grantedQos);
+    void sendRetained(uint16_t s, Bytes filter, uint8_t grantedQos, uint32_t subId);
     void deliverLocal(uint32_t msg, uint8_t qos, bool retain);
-    int addSubscription(uint16_t s, Bytes filter, uint8_t qos, uint8_t options, bool &replaced);
+    // `filter` is the full filter, $share/<group>/ included
+    int addSubscription(uint16_t s, Bytes filter, uint8_t qos, uint8_t options, uint32_t subId, bool &replaced);
     bool removeSubscription(uint16_t s, Bytes filter);
+    int findSubscription(uint16_t s, Bytes filter) const;
     bool allowed(int s, Bytes topic, bool subscribe);
 
     Conn conns_[TINYMQ_BROKER_MAX_CLIENTS];
@@ -201,6 +232,10 @@ private:
     MessageStore store_;
 
     uint32_t now_ = 0;
+    uint32_t seconds_ = 1;  // uptime in seconds from 1, carried past the millis() wrap
+    uint32_t lastTickMs_ = 0;
+    uint32_t tickRest_ = 0;
+    uint32_t sharedNext_ = 0;
     uint32_t connectTimeout_ = 10000;
     uint32_t sessionExpiry_ = 0;
     uint32_t generatedIds_ = 0;

@@ -1,4 +1,5 @@
-"""TinyMQBroker (MQTT 3.1.1 / 3.1 over TCP) against paho-mqtt and raw sockets, and
+"""TinyMQBroker (MQTT 3.1.1 / 3.1 / 5.0 over TCP) against paho-mqtt and raw
+sockets (5.0 in v5_scenarios.py), and
 its MQTT-SN gateway against a Python MQTT-SN client (sn_scenarios.py).
 
 The host DUT accepts one serial connection per process, so the scenarios
@@ -19,6 +20,7 @@ from helpers.line_dut import LineDut
 from helpers.mosquitto import free_port
 from helpers.paho_peer import PahoPeer
 from sn_scenarios import SCENARIOS as SN_SCENARIOS, free_udp_port
+from v5_scenarios import SCENARIOS as V5_SCENARIOS
 
 
 class Dut(LineDut):
@@ -375,11 +377,13 @@ def scenario_protocol_errors(d, port):
     r.send(mp.connect("lvl", level=6))
     assert r.recv_packet() == (0x20, b"\x00\x01")
     assert r.closed_by_peer()
-    # MQTT 5.0 is refused until it is implemented
+    # MQTT 5.0 is accepted (its CONNACK has a reason code and properties)
     r = mp.RawClient(port)
     # level 5, clean start, keep alive 60, no properties
     r.send(mp.packet(0x10, mp.string("MQTT") + bytes([5, 0x02, 0, 60, 0]) + mp.string("v5")))
-    assert r.recv_packet() == (0x20, b"\x00\x01")
+    first, body = r.recv_packet()
+    assert first == 0x20 and body[:2] == b"\x00\x00", body
+    r.send(mp.DISCONNECT)
     # an empty client id needs a clean session
     r = mp.RawClient(port)
     r.connect("", clean=False, expect_code=2)
@@ -500,6 +504,8 @@ def test_broker_interop(dut, record_property):
         ("many_clients", scenario_many_clients),
         ("payload_sizes", scenario_payload_sizes),
     ):
+        run(name, fn)
+    for name, fn in V5_SCENARIOS:
         run(name, fn)
     for name, fn in SN_SCENARIOS:
         run(name, lambda d, port, fn=fn: fn(d, port, sn_port))

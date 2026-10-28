@@ -41,6 +41,10 @@ SPEC §7 の順に進める。
   - [ ] Pico W(つながっていない)
   - [ ] 計測(ブローカーの接続数ごとの RAM、配送の速さと遅延)、TinyWG との組み合わせ
 - [ ] Phase 6: MQTT 5.0
+  - [x] プロパティのコーデック
+  - [x] ブローカー(セッション / メッセージの有効期限、Will Delay、購読識別子と購読オプション、共有購読、受信側のトピックエイリアス、Receive Maximum、Maximum Packet Size、理由コード)
+  - [ ] クライアント
+  - [ ] 拡張認証(AUTH)。今は Authentication Method を CONNACK 0x8C で断る
 - [ ] Phase 7: ブリッジ
 - [ ] Phase 8: lwIP の受け口、永続化のフック
 - [ ] 既定値と設定のプリセットを実測で決める
