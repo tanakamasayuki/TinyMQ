@@ -1,0 +1,22 @@
+*.o
+*.a
+*.elf
+*.bin
+*.hex
+build/
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+__pycache__/
+*.pyc
+.pytest*/
+.env
+
+# Test build output
+tests/**/build/
+tests/**/output/
+tests/report.html
