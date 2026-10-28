@@ -4,7 +4,9 @@
 
 ## 現状
 
-- Phase 0(雛形)、Phase 1(core: コーデック、トピック、メッセージプール)、Phase 2(`TinyMQClient` の 3.1.1)、Phase 3 の大部分(`TinyMQBroker` の 3.1.1)まで済み。host で単体テスト、mosquitto との相互接続、paho-mqtt / 生ソケットからブローカーへの相互接続テストが通る。ESP32 / Pico W でビルドが通る(CH32V307 は smoke のビルドのみ)
+- Phase 0〜4 まで済み: MQTT 3.1.1 / 3.1 のクライアント(`TinyMQClient`)とブローカー(`TinyMQBroker` + `TinyMQTcpListener`)、MQTT-SN 1.2 のゲートウェイ(`TinyMQSnListener`)とクライアント(`TinyMQClientSn`)
+- host の試験(`smoke` `codec` `topic` `pool` `sn_codec` `client_interop` `broker_interop` `sn_client_interop`)はすべて通る。ESP32 / Pico W / CH32V307 はビルドのみで、実機ではまだ動かしていない
+- ブランチは `main` のみ。push はまだ
 - 決まったこと(詳細は SPEC)
   - クライアントとブローカーを 1 つのライブラリに入れ、使う側だけを選ぶ
   - TCP は MQTT 3.1.1 / 5.0。ブローカーはなるべく仕様の全体を実装し、設定で軽くできるようにする

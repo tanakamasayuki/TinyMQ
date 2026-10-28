@@ -2,7 +2,7 @@
 
 [日本語](SPEC.ja.md)
 
-> Status: direction decided (2026-10-28). Nothing implemented yet. Values not yet decided are marked `TBD`.
+> Status: Phases 0 to 4 implemented (2026-10-28): MQTT 3.1.1 / 3.1 client and broker, MQTT-SN 1.2 gateway and client. Tested on the host only, not yet on boards. Values not yet decided are marked `TBD`.
 
 ## 1. Purpose and scope
 
