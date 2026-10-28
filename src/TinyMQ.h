@@ -11,6 +11,7 @@
 #include "tinymq/mq_config.h"
 #include "tinymq/mq_types.h"
 #include "tinymq/mq_codec.h"
+#include "tinymq/mq_props.h"
 #include "tinymq/mq_topic.h"
 #include "tinymq/mq_pool.h"
 #include "tinymq/mq_client.h"
