@@ -148,15 +148,93 @@ void Broker::poll(uint32_t now)
     }
 }
 
+void Broker::flushConn(int conn)
+{
+    if (isOpen(conn) && conns_[conn].state == kActive) {
+        flush(conns_[conn].session);
+        reapBroken();
+    }
+}
+
+void Broker::resendConn(int conn)
+{
+    if (isOpen(conn) && conns_[conn].state == kActive) {
+        resendInflight(conns_[conn].session);
+        reapBroken();
+    }
+}
+
+bool Broker::hasInflight(int conn) const
+{
+    if (!isOpen(conn) || conns_[conn].state != kActive)
+        return false;
+    const Session &ss = sessions_[conns_[conn].session];
+    for (int i = 0; i < ss.queued; ++i)
+        if (ss.queue[i].state != kQueued)
+            return true;
+    return false;
+}
+
+bool Broker::hasQueued(int conn) const
+{
+    if (!isOpen(conn) || conns_[conn].state != kActive)
+        return false;
+    const Session &ss = sessions_[conns_[conn].session];
+    for (int i = 0; i < ss.queued; ++i)
+        if (ss.queue[i].state == kQueued)
+            return true;
+    return false;
+}
+
+bool Broker::setWill(int conn, Bytes topic, Bytes payload, uint8_t qos, bool retain)
+{
+    if (!isOpen(conn) || conns_[conn].state != kActive || !validTopicName(topic) || topic.len > TINYMQ_MAX_TOPIC_LEN)
+        return false;
+    uint32_t will = store_.create(topic, Bytes(), payload, qos > 2 ? 2 : qos, retain);
+    if (will == Pool::kNull)
+        return false;
+    Session &ss = sessions_[conns_[conn].session];
+    store_.release(ss.will);
+    ss.will = will;
+    return true;
+}
+
+void Broker::clearWill(int conn)
+{
+    if (!isOpen(conn) || conns_[conn].state != kActive)
+        return;
+    Session &ss = sessions_[conns_[conn].session];
+    store_.release(ss.will);
+    ss.will = Pool::kNull;
+}
+
+bool Broker::will(int conn, Bytes &topic, Bytes &payload, uint8_t &qos, bool &retain) const
+{
+    if (!isOpen(conn) || conns_[conn].state != kActive)
+        return false;
+    uint32_t w = sessions_[conns_[conn].session].will;
+    if (w == Pool::kNull)
+        return false;
+    topic = store_.topic(w);
+    payload = store_.payload(w);
+    qos = store_.qos(w);
+    retain = store_.retain(w);
+    return true;
+}
+
 // ---- local client
 
 bool Broker::publish(const char *topic, const uint8_t *payload, size_t len, uint8_t qos, bool retain)
 {
-    Bytes t(topic);
+    return publish(Bytes(topic), Bytes(payload, (uint32_t)len), qos, retain);
+}
+
+bool Broker::publish(Bytes t, Bytes payload, uint8_t qos, bool retain)
+{
     if (!validTopicName(t) || !validUtf8(t.data, t.len) || t.len > TINYMQ_MAX_TOPIC_LEN || qos > 2)
         return false;
     uint32_t before = dropped_;
-    deliver(kLocal, t, Bytes(payload, (uint32_t)len), qos, retain);
+    deliver(kLocal, t, payload, qos, retain);
     reapBroken();
     return dropped_ == before;
 }

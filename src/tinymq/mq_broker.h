@@ -66,8 +66,20 @@ public:
     bool owns(int conn, const Link &link) const { return isOpen(conn) && conns_[conn].link == &link; }
     void poll(uint32_t now);
 
+    // For gateways that translate another protocol (MQTT-SN) per connection:
+    void flushConn(int conn);        // send what is queued, as far as writable() allows
+    void resendConn(int conn);       // resend the unacknowledged deliveries (with DUP) and PUBRELs
+    bool hasInflight(int conn) const;
+    bool hasQueued(int conn) const;  // waiting to be sent
+    // The will of an open connection: replace or remove it. False if the pool is full.
+    bool setWill(int conn, Bytes topic, Bytes payload, uint8_t qos, bool retain);
+    void clearWill(int conn);
+    // The current will; false if there is none
+    bool will(int conn, Bytes &topic, Bytes &payload, uint8_t &qos, bool &retain) const;
+
     // ---- local client (the sketch, inside the broker)
     bool publish(const char *topic, const uint8_t *payload, size_t len, uint8_t qos = 0, bool retain = false);
+    bool publish(Bytes topic, Bytes payload, uint8_t qos = 0, bool retain = false);
     bool subscribe(const char *filter, uint8_t qos = 0);  // retained messages are delivered at once
     bool unsubscribe(const char *filter);
     void onMessage(MessageHandler h, void *context = nullptr) { onLocal_ = h; onLocalCtx_ = context; }

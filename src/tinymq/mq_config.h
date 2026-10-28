@@ -80,3 +80,25 @@
 #ifndef TINYMQ_ENABLE_QOS2_DELIVERY
 #define TINYMQ_ENABLE_QOS2_DELIVERY 1
 #endif
+
+// ---- MQTT-SN gateway (TinyMQSnListener)
+
+// MQTT-SN clients at once; each also takes one of TINYMQ_BROKER_MAX_CLIENTS
+#ifndef TINYMQ_SN_MAX_CLIENTS
+#define TINYMQ_SN_MAX_CLIENTS 8
+#endif
+
+// Topic id registrations of all MQTT-SN clients together
+#ifndef TINYMQ_SN_MAX_TOPICS
+#define TINYMQ_SN_MAX_TOPICS 64
+#endif
+
+// Predefined topic ids
+#ifndef TINYMQ_SN_MAX_PREDEFINED
+#define TINYMQ_SN_MAX_PREDEFINED 16
+#endif
+
+// Bytes for registered topic names and wills being connected
+#ifndef TINYMQ_SN_POOL_BYTES
+#define TINYMQ_SN_POOL_BYTES 4096
+#endif

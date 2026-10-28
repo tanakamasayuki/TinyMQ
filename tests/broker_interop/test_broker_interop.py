@@ -1,4 +1,5 @@
-"""TinyMQBroker (MQTT 3.1.1 / 3.1 over TCP) against paho-mqtt and raw sockets.
+"""TinyMQBroker (MQTT 3.1.1 / 3.1 over TCP) against paho-mqtt and raw sockets, and
+its MQTT-SN gateway against a Python MQTT-SN client (sn_scenarios.py).
 
 The host DUT accepts one serial connection per process, so the scenarios
 run inside one test function and are reported one by one
@@ -16,6 +17,7 @@ from helpers import mqtt_packets as mp
 from helpers.line_dut import LineDut
 from helpers.mosquitto import free_port
 from helpers.paho_peer import PahoPeer
+from sn_scenarios import SCENARIOS as SN_SCENARIOS, free_udp_port
 
 
 class Dut(LineDut):
@@ -28,8 +30,8 @@ class Dut(LineDut):
 
     def stats(self):
         self.send("STATS")
-        m = self.expect(r"^STATS clients=(\d+) sessions=(\d+) subs=(\d+) retained=(\d+) pool=(\d+)/(\d+) dropped=(\d+)")
-        keys = ("clients", "sessions", "subs", "retained", "pool", "capacity", "dropped")
+        m = self.expect(r"^STATS clients=(\d+) sessions=(\d+) subs=(\d+) retained=(\d+) pool=(\d+)/(\d+) dropped=(\d+) sn=(\d+) snregs=(\d+)")
+        keys = ("clients", "sessions", "subs", "retained", "pool", "capacity", "dropped", "sn", "snregs")
         return dict(zip(keys, (int(g) for g in m.groups())))
 
     def wait_clients(self, n, timeout=5):
@@ -454,14 +456,15 @@ def scenario_clean_state(d, port):
     """Everything the scenarios left was freed: no clients, sessions, subscriptions or pool bytes."""
     d.wait_clients(0)
     s = d.stats()
-    assert (s["sessions"], s["subs"], s["retained"], s["pool"]) == (0, 0, 0, 0), s
+    assert (s["sessions"], s["subs"], s["retained"], s["pool"], s["sn"], s["snregs"]) == (0, 0, 0, 0, 0, 0), s
 
 
 def test_broker_interop(dut, record_property):
     d = Dut(dut)
     d.expect("^READY", timeout=30)
     port = free_port()
-    d.send(f"LISTEN {port}")
+    sn_port = free_udp_port()
+    d.send(f"LISTEN {port} {sn_port}")
     d.expect(rf"^LISTENING {port}")
     results = {}
 
@@ -492,9 +495,11 @@ def test_broker_interop(dut, record_property):
         ("mqtt31", scenario_mqtt31),
         ("many_clients", scenario_many_clients),
         ("payload_sizes", scenario_payload_sizes),
-        ("clean_state", scenario_clean_state),
     ):
         run(name, fn)
+    for name, fn in SN_SCENARIOS:
+        run(name, lambda d, port, fn=fn: fn(d, port, sn_port))
+    run("clean_state", scenario_clean_state)
 
     failed = {k: v for k, v in results.items() if v != "PASS"}
     assert not failed, failed

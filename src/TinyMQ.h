@@ -16,6 +16,8 @@
 #include "tinymq/mq_client.h"
 #include "tinymq/mq_broker.h"
 #include "tinymq/mq_sn.h"
+#include "tinymq/mq_sn_gateway.h"
 #include "TinyMQClient.h"
 #include "TinyMQBroker.h"
 #include "TinyMQTcpListener.h"
+#include "TinyMQSnListener.h"

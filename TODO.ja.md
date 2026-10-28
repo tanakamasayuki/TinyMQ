@@ -25,7 +25,11 @@ SPEC §7 の順に進める。
   - [ ] Eclipse paho.mqtt.testing の相互接続試験スイートを当てる
   - [ ] `$SYS` トピック
   - [ ] 書き込みが詰まったときの扱い(今は Arduino の `Client::write()` がブロックする前提。lwIP 版の受け口で `writable()` を使う)
-- [ ] Phase 4: MQTT-SN(`TinyMQSnListener`、`TinyMQClientSn`、Python の MQTT-SN ピア)
+- [ ] Phase 4: MQTT-SN
+  - [x] コーデック(`tinymq::sn`)と単体テスト
+  - [x] ゲートウェイ(`tinymq::SnGateway`、`TinyMQSnListener`)。MQTT-SN のクライアント 1 つにブローカーの接続を 1 本割り当て、パケットを相互に変換する方式。Python の MQTT-SN ピアで試験
+  - [ ] `TinyMQClientSn`(段階を選べるクライアント)
+  - [ ] Forwarder Encapsulation、送信元アドレスの許可リスト
 - [ ] Phase 5: 実機(ESP32 / ESP32-S3 / Pico W / CH32V307)、計測、TinyWG との組み合わせ
 - [ ] Phase 6: MQTT 5.0
 - [ ] Phase 7: ブリッジ

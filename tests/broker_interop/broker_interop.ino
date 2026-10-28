@@ -2,7 +2,7 @@
 // interop tests with paho-mqtt and raw sockets (test_broker_interop.py).
 //
 // Commands (one per line):
-//   LISTEN <port>   MAXQOS <0-2>   EXPIRY <s>   CTIMEOUT <ms>
+//   LISTEN <tcp port> [<MQTT-SN udp port>]   SNRETRY <ms> <count>   MAXQOS <0-2>   EXPIRY <s>   CTIMEOUT <ms>
 //   AUTH <0|1>  (user alice / password secret)          ACL <0|1>  (deny "secret/...")
 //   LSUB <qos> <filter>   LUNSUB <filter>   LPUB <qos> <retain> <topic> <payload>
 //   STATS
@@ -15,6 +15,8 @@
 
 WiFiServer server;
 TinyMQTcpListener<WiFiServer> listener(server);
+WiFiUDP udp;
+TinyMQSnListener sn(udp);
 TinyMQBroker broker;
 
 static char g_line[512];
@@ -73,9 +75,15 @@ static void command(char *line)
     char *cmd = nextWord(&s);
     if (!strcmp(cmd, "LISTEN")) {
         uint16_t port = (uint16_t)atoi(nextWord(&s));
+        uint16_t snPort = (uint16_t)atoi(nextWord(&s));
         server.begin(port);
+        if (snPort)
+            udp.begin(snPort);
         Serial.print("LISTENING ");
         Serial.println(port);
+    } else if (!strcmp(cmd, "SNRETRY")) {
+        uint32_t ms = (uint32_t)atol(nextWord(&s));
+        sn.setRetry(ms, (uint8_t)atoi(nextWord(&s)));
     } else if (!strcmp(cmd, "MAXQOS")) {
         broker.setMaxQos((uint8_t)atoi(nextWord(&s)));
     } else if (!strcmp(cmd, "CTIMEOUT")) {
@@ -112,13 +120,17 @@ static void command(char *line)
         Serial.print('/');
         Serial.print((unsigned)broker.poolCapacity());
         Serial.print(" dropped=");
-        Serial.println((unsigned long)broker.droppedMessages());
+        Serial.print((unsigned long)broker.droppedMessages());
+        Serial.print(" sn=");
+        Serial.print((unsigned)sn.clients());
+        Serial.print(" snregs=");
+        Serial.println((unsigned)sn.gateway().registrations());
     } else {
         Serial.print("ERR unknown ");
         Serial.println(cmd);
         return;
     }
-    if (!strcmp(cmd, "MAXQOS") || !strcmp(cmd, "CTIMEOUT") || !strcmp(cmd, "EXPIRY") || !strcmp(cmd, "AUTH") || !strcmp(cmd, "ACL")) {
+    if (!strcmp(cmd, "MAXQOS") || !strcmp(cmd, "SNRETRY") || !strcmp(cmd, "CTIMEOUT") || !strcmp(cmd, "EXPIRY") || !strcmp(cmd, "AUTH") || !strcmp(cmd, "ACL")) {
         Serial.print("OK ");
         Serial.println(cmd);
     }
@@ -130,6 +142,9 @@ void setup()
     delay(2000);
     broker.begin();
     broker.addListener(listener);
+    broker.addListener(sn);
+    sn.addPredefinedTopic(1, "pre/one");
+    sn.addPredefinedTopic(2, "pre/two");
     broker.onMessage(onLocal);
     broker.onClient(onClient);
     Serial.println("READY");
