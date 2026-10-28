@@ -15,7 +15,8 @@
 // in loop(), under the lwIP lock where the core has one.
 #pragma once
 
-#if __has_include(<lwip/tcp.h>)
+// Not in arduino-pico's FreeRTOS mode, where lwIP runs in its own task.
+#if __has_include(<lwip/tcp.h>) && !(defined(ARDUINO_ARCH_RP2040) && defined(__FREERTOS))
 #define TINYMQ_HAS_LWIP 1
 
 #include <lwip/tcp.h>

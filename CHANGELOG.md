@@ -1,6 +1,8 @@
 # Changelog / 変更履歴
 
 ## Unreleased
+- (EN) README, beginner's and advanced guides, API reference (English and Japanese), six examples with READMEs, keywords.txt.
+- (JA) README、初心者ガイド、上級者ガイド、API リファレンス(日英)、README 付きのサンプル 6 本、keywords.txt。
 - (EN) Specification (SPEC.md) and project skeleton.
 - (JA) 仕様書(SPEC.ja.md)とプロジェクトの雛形。
 - (EN) Protocol core: MQTT 3.1 / 3.1.1 / 5.0 packet codec, topic matching, message pool.

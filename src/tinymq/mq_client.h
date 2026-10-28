@@ -60,6 +60,8 @@ public:
     void poll(uint32_t now);
     // The transport saw the stream close.
     void linkLost();
+    // The transport could not open the stream at all.
+    void linkFailed() { lastReason_ = kUnspecifiedError; }
 
     // ---- application side
     State state() const { return state_; }

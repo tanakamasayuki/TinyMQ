@@ -191,26 +191,13 @@ CH32V307(Ethernet で 1 秒ごとに UDP を送るスケッチとの差、`TINYM
 
 ### 5.1 設定
 
-ビルド時のマクロ(`-D` で上書き、`src/tinymq/mq_config.h`)と、実行時の設定(`begin()` 前後のセッター)の 2 段にする。ビルド時に外した機能は、実行時に有効にできない。既定値は実測後に決める。
+ビルド時のマクロ(`-D` で上書き、`src/tinymq/mq_config.h`)と、実行時の設定(`begin()` 前後のセッター)の 2 段にする。全一覧と既定値は[上級者ガイド](docs/guide-advanced.ja.md) §2。
 
-| マクロ(案) | 内容 |
-|---|---|
-| `TINYMQ_BROKER_MAX_CLIENTS` | 同時接続数(TCP + MQTT-SN) |
-| `TINYMQ_BROKER_MAX_SESSIONS` | 保持するセッション数(切断中の永続セッションを含む) |
-| `TINYMQ_BROKER_MAX_SUBSCRIPTIONS` | 購読の総数 |
-| `TINYMQ_MAX_TOPIC_LEN` | トピック名の最大長 |
-| `TINYMQ_MAX_PACKET` | 受け付けるパケットの最大長 |
-| `TINYMQ_BROKER_POOL_BYTES` | メッセージプールの大きさ(0 なら `begin()` で確保) |
-| `TINYMQ_BROKER_MAX_RETAINED` | retain の保持数 |
-| `TINYMQ_BROKER_MAX_INFLIGHT` | クライアントごとの送信中の上限 |
-| `TINYMQ_BROKER_MAX_QUEUED` | クライアントごとの切断中・スリープ中のキュー |
-| `TINYMQ_ENABLE_MQTT5` | 5.0 を含める |
-| `TINYMQ_ENABLE_QOS2_DELIVERY` | QoS 2 の配送を含める(§4.3) |
-| `TINYMQ_ENABLE_PERSISTENT_SESSION` | 永続セッション |
-| `TINYMQ_ENABLE_SHARED_SUB` / `TINYMQ_ENABLE_TOPIC_ALIAS` / `TINYMQ_ENABLE_SYS` | 5.0 の個別機能、`$SYS` |
-| `TINYMQ_ENABLE_SN` | MQTT-SN ゲートウェイ |
-| `TINYMQ_SN_CLIENT_LEVEL` | MQTT-SN クライアントの段階(§4.5)。既定 2 |
-| `TINYMQ_ENABLE_BRIDGE` | ブリッジ |
+- 表の大きさ: 接続数、セッション数、購読数、retain の数、セッションごとのキューと送信中の数、受信中の QoS 2、トピックエイリアス、MQTT-SN のクライアント数と登録数、ブリッジの対応表
+- バッファ: `TINYMQ_MAX_PACKET`、`TINYMQ_BROKER_RX_BUFFER`、プール(`TINYMQ_BROKER_POOL_BYTES`、0 なら `begin()` で 1 回確保)
+- 機能: `TINYMQ_ENABLE_MQTT5`、`TINYMQ_ENABLE_SHARED_SUB`、`TINYMQ_ENABLE_QOS2_DELIVERY`、`TINYMQ_SN_CLIENT_LEVEL`
+
+当初案にあった `TINYMQ_ENABLE_SN` / `TINYMQ_ENABLE_BRIDGE` / `TINYMQ_ENABLE_PERSISTENT_SESSION` などは設けていない。MQTT-SN、ブリッジ、永続化は、使わなければリンカが落とす。`$SYS` は未実装。
 
 ## 6. テスト方針
 

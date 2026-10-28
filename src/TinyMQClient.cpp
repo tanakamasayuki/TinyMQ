@@ -37,8 +37,10 @@ bool TinyMQClient::openAndStart()
     if (engine_.state() != tinymq::ClientEngine::State::Disconnected)
         engine_.disconnect();
     int ok = host_ ? client_.connect(host_, port_) : client_.connect(ip_, port_);
-    if (!ok)
+    if (!ok) {
+        engine_.linkFailed();
         return false;
+    }
     return engine_.start(*this, millis());
 }
 

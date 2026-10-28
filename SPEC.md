@@ -191,26 +191,13 @@ CH32V307 (difference to a sketch sending UDP over Ethernet once a second, `TINYM
 
 ### 5.1 Settings
 
-Two levels: build-time macros (override with `-D`, in `src/tinymq/mq_config.h`) and run-time setters (before or after `begin()`). A feature removed at build time cannot be enabled at run time. Defaults are decided after measuring.
+Two levels: build-time macros (override with `-D`, in `src/tinymq/mq_config.h`) and run-time setters (before or after `begin()`). The full list and defaults are in the [advanced guide](docs/guide-advanced.md) §2.
 
-| Macro (draft) | Meaning |
-|---|---|
-| `TINYMQ_BROKER_MAX_CLIENTS` | concurrent connections (TCP + MQTT-SN) |
-| `TINYMQ_BROKER_MAX_SESSIONS` | sessions kept (including offline persistent sessions) |
-| `TINYMQ_BROKER_MAX_SUBSCRIPTIONS` | total subscriptions |
-| `TINYMQ_MAX_TOPIC_LEN` | longest topic name |
-| `TINYMQ_MAX_PACKET` | longest packet accepted |
-| `TINYMQ_BROKER_POOL_BYTES` | size of the message pool (0: allocated in `begin()`) |
-| `TINYMQ_BROKER_MAX_RETAINED` | retained messages kept |
-| `TINYMQ_BROKER_MAX_INFLIGHT` | inflight limit per client |
-| `TINYMQ_BROKER_MAX_QUEUED` | queue per client while offline or asleep |
-| `TINYMQ_ENABLE_MQTT5` | include 5.0 |
-| `TINYMQ_ENABLE_QOS2_DELIVERY` | include QoS 2 delivery (§4.3) |
-| `TINYMQ_ENABLE_PERSISTENT_SESSION` | persistent sessions |
-| `TINYMQ_ENABLE_SHARED_SUB` / `TINYMQ_ENABLE_TOPIC_ALIAS` / `TINYMQ_ENABLE_SYS` | individual 5.0 features, `$SYS` |
-| `TINYMQ_ENABLE_SN` | MQTT-SN gateway |
-| `TINYMQ_SN_CLIENT_LEVEL` | MQTT-SN client level (§4.5), default 2 |
-| `TINYMQ_ENABLE_BRIDGE` | bridge |
+- Table sizes: connections, sessions, subscriptions, retained messages, queued and in-flight messages per session, incoming QoS 2, topic aliases, MQTT-SN clients and registrations, bridge topic maps
+- Buffers: `TINYMQ_MAX_PACKET`, `TINYMQ_BROKER_RX_BUFFER`, the pool (`TINYMQ_BROKER_POOL_BYTES`; 0 allocates it once in `begin()`)
+- Features: `TINYMQ_ENABLE_MQTT5`, `TINYMQ_ENABLE_SHARED_SUB`, `TINYMQ_ENABLE_QOS2_DELIVERY`, `TINYMQ_SN_CLIENT_LEVEL`
+
+The planned `TINYMQ_ENABLE_SN` / `TINYMQ_ENABLE_BRIDGE` / `TINYMQ_ENABLE_PERSISTENT_SESSION` and the like were not added: MQTT-SN, bridges and persistence are dropped by the linker when unused. `$SYS` is not implemented yet.
 
 ## 6. Testing
 

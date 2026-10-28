@@ -51,9 +51,15 @@ SPEC §7 の順に進める。
   - [ ] 上流が落ちている間の out のメッセージを貯める(今は捨てて数える)
 - [ ] Phase 8: lwIP の受け口、永続化のフック
   - [x] 永続化: `saveState()` / `loadState()`(保存先は `StateSink` / `StateSource` でスケッチが選ぶ)、retain の変化のコールバック、`end()`
-  - [ ] LittleFS に保存するサンプル
+  - [x] LittleFS に保存するサンプル(`Esp32Persist`)
   - [x] lwIP の受け口(`TinyMQLwipListener`)。コールバックは受信を溜めるだけ、ブローカーは `loop()` から lwIP のロックの下で動く。`writable()` は送信バッファの空き。ESP32 / ESP32-S3 の実機で TCP と 5.0 のシナリオが通過、Pico W と CH32V307 はビルドのみ
 - [ ] 既定値と設定のプリセットを実測で決める
+
+## ドキュメント
+
+- [x] README、初心者ガイド、上級者ガイド、API リファレンス(日英)、サンプル 6 本(日英の README)、`keywords.txt`
+- [ ] サンプルの実機での確認(今はビルドのみ。`Esp32Client` / `Esp32Broker` などは相互接続試験と同じ使い方)
+- [ ] `tests/README` の英語版
 
 ## 未決定(TBD)
 
