@@ -32,6 +32,7 @@ tests/tools/fetch_mosquitto.sh
 | `sn_client_interop/` | `TinyMQClientSn` をシリアルのコマンドで動かす。同じスケッチの中で動くブローカーのゲートウェイと実際の UDP ソケットでつなぎ(待っている間は `onIdle()` でブローカーを回す)、paho-mqtt で TCP 側から確かめる: 接続なしの QoS -1、QoS 0 / 1 / 2 の送信(登録は自動)、retain、事前定義と短いトピック名、購読(ワイルドカードでゲートウェイから REGISTER)、will と keepalive 切れ、スリープと起床時の受信、スリープからの CONNECT。スクリプトで動かす偽ゲートウェイ相手に、DUP 付きの再送、「不正なトピック ID」での登録し直し、応答がないときの失敗、未知のトピック ID の拒否、QoS 2 の重複受信、ゲートウェイからの DISCONNECT、接続の拒否、ゲートウェイ探索 | host / esp32 / esp32s3 / picow |
 | `props/` | MQTT 5.0 のプロパティの組み立てと読み出し、検証(型、値の範囲、パケットごとに許される ID、重複、UTF-8)、指定した ID を除いたコピー | host / esp32 / esp32s3 / ch32v307 / picow |
 | `bridge_interop/` | `TinyMQBridge` を 2 本(5.0 と 3.1.1)つないだブローカーを、PC の mosquitto へブリッジ。ブリッジ前の retain を上流へ送ること、out / in / both の転送とプレフィックスの付け替え、QoS の上限、5.0 のプロパティの中継、both でループしないこと、上流が落ちている間の破棄、同じポートで戻った上流への再接続(購読と retain のやり直し) | host / esp32 / esp32s3 / picow |
+| `broker_conformance/` | Eclipse paho.mqtt.testing の相互接続試験スイート(3.1.1 と 5.0)を `TinyMQBroker` に当てる。外部のコードを実行するので、`tools/fetch_paho_testing.sh` で取得し、`TINYMQ_RUN_PAHO_TESTING=1` を付けたときだけ動く。**まだ通しで実行していない** | host / esp32 / esp32s3 / picow |
 | `pool/` | メッセージプールの確保・解放・結合・枯渇・アライメント、2 万回のランダムな確保と解放、参照カウント付きメッセージ | 同上 |
 
 ## 実機で動かす
