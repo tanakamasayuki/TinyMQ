@@ -23,6 +23,9 @@ from helpers.mosquitto import free_port
 SUITES = Path(__file__).resolve().parent.parent / ".tools" / "paho.mqtt.testing" / "interoperability"
 OUTPUT = Path(__file__).parent / "output"
 
+# decided before anything is built
+pytestmark = pytest.mark.skipif(os.environ.get("TINYMQ_RUN_PAHO_TESTING") != "1", reason="runs third-party code: set TINYMQ_RUN_PAHO_TESTING=1 to run it")
+
 
 def run_suite(script, host, port):
     runner = Path(__file__).resolve().parent.parent / "helpers" / "run_paho_suite.py"
@@ -35,8 +38,6 @@ def run_suite(script, host, port):
 
 
 def test_broker_conformance(dut, record_property):
-    if os.environ.get("TINYMQ_RUN_PAHO_TESTING") != "1":
-        pytest.skip("runs third-party code: set TINYMQ_RUN_PAHO_TESTING=1 to run it")
     if not (SUITES / "client_test.py").exists():
         pytest.skip("paho.mqtt.testing not found (run tests/tools/fetch_paho_testing.sh)")
     d = LineDut(dut)
