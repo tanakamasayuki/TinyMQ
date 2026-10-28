@@ -155,3 +155,12 @@
 #ifndef TINYMQ_BRIDGE_MAX_TOPICS
 #define TINYMQ_BRIDGE_MAX_TOPICS 8
 #endif
+
+// QoS 1 / 2 messages a bridge keeps for upstream while it is down:
+// bytes (0: none kept) and count
+#ifndef TINYMQ_BRIDGE_QUEUE_BYTES
+#define TINYMQ_BRIDGE_QUEUE_BYTES 2048
+#endif
+#ifndef TINYMQ_BRIDGE_MAX_QUEUED
+#define TINYMQ_BRIDGE_MAX_QUEUED 16
+#endif

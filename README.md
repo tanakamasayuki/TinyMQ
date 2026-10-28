@@ -163,7 +163,7 @@ Every setting is in the [advanced guide](docs/guide-advanced.md).
 - IPv4 only (MQTT-SN gateway / client)
 - MQTT 5.0 enhanced authentication (AUTH) is not supported. A CONNECT with an Authentication Method is refused with 0x8C
 - TLS on the broker side, MQTT over WebSocket and MQTT-SN 2.0 are out of scope
-- The bridge does not hold outgoing messages while the upstream is down (it drops and counts them)
+- While upstream is down, the bridge keeps QoS 1 / 2 messages up to `TINYMQ_BRIDGE_QUEUE_BYTES` (2 KB by default); a restart loses them
 - In arduino-pico's FreeRTOS mode, `TinyMQLwipListener` cannot be used (use `TinyMQTcpListener`)
 
 ## License

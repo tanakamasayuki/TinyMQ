@@ -65,6 +65,8 @@ With `TINYMQ_BROKER_POOL_BYTES` set to 0, the pool is allocated once by `begin(b
 | `TINYMQ_SN_CLIENT_MAX_TOPICS` | 8 | Topic IDs the MQTT-SN client remembers |
 | `TINYMQ_SN_CLIENT_TOPIC_LEN` | 32 | Maximum length of those topic names |
 | `TINYMQ_BRIDGE_MAX_TOPICS` | 8 | Topic mappings per bridge |
+| `TINYMQ_BRIDGE_QUEUE_BYTES` | 2048 | Room for QoS 1 / 2 messages kept while upstream is down (0: none kept) |
+| `TINYMQ_BRIDGE_MAX_QUEUED` | 16 | How many |
 
 The Arduino IDE has no place to pass `-D`. With arduino-cli, use `--build-property "compiler.cpp.extra_flags=-DTINYMQ_BROKER_MAX_CLIENTS=4"`; with PlatformIO, use `build_flags`. The settings apply to the whole library, so a `#define` in the sketch does not change them.
 
@@ -243,5 +245,5 @@ broker.onAuthorize(onAcl);
 
 - The MQTT-SN gateway and client are IPv4 only
 - MQTT 5.0 enhanced authentication (AUTH), TLS on the broker side, WebSocket and MQTT-SN 2.0 are out of scope
-- The bridge does not store messages while upstream is down
+- Messages the bridge keeps are in RAM only (a restart loses them)
 - The broker does not use topic aliases itself (it only accepts them)

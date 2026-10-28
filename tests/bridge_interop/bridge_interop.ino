@@ -8,7 +8,7 @@
 //                                         sensors/+/temp -> edge1/s/+/temp
 //   BRIDGE2 <ip> <port>                   bridge B (3.1.1): o2/# -> edge2/o2/#, edge2/c2/# -> c2/#
 //   LPUB <qos> <retain> <topic> <payload> publish from the sketch
-//   STATS                                 BSTATS a=<connected> out=<n> in=<n> dropped=<n> b=<connected> out=<n> in=<n>
+//   STATS                                 BSTATS a=<connected> out=<n> in=<n> dropped=<n> queued=<n> b=<connected> out=<n> in=<n>
 
 #include <TinyMQ.h>
 
@@ -81,8 +81,9 @@ static void command(char *line)
         Serial.println(broker.publish(topic, s, qos, retain) ? "LPUB ok" : "LPUB fail");
     } else if (!strcmp(cmd, "STATS")) {
         char out[160];
-        snprintf(out, sizeof(out), "BSTATS a=%d out=%lu in=%lu dropped=%lu b=%d out=%lu in=%lu", bridgeA.connected() ? 1 : 0,
-                 (unsigned long)bridgeA.forwardedOut(), (unsigned long)bridgeA.forwardedIn(), (unsigned long)bridgeA.dropped(), bridgeB.connected() ? 1 : 0,
+        snprintf(out, sizeof(out), "BSTATS a=%d out=%lu in=%lu dropped=%lu queued=%u b=%d out=%lu in=%lu", bridgeA.connected() ? 1 : 0,
+                 (unsigned long)bridgeA.forwardedOut(), (unsigned long)bridgeA.forwardedIn(), (unsigned long)bridgeA.dropped(), (unsigned)bridgeA.queued(),
+                 bridgeB.connected() ? 1 : 0,
                  (unsigned long)bridgeB.forwardedOut(), (unsigned long)bridgeB.forwardedIn());
         Serial.println(out);
     } else {

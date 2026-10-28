@@ -163,7 +163,7 @@ void loop()
 - IPv4 のみ(MQTT-SN のゲートウェイ / クライアント)
 - MQTT 5.0 の拡張認証(AUTH)は未対応。Authentication Method を含む CONNECT は 0x8C で断ります
 - ブローカー側の TLS、MQTT over WebSocket、MQTT-SN 2.0 は対象外
-- ブリッジは、上流が落ちている間に外へ出すメッセージを貯めません(捨てて数えます)
+- ブリッジが上流が落ちている間に預かるのは、QoS 1 / 2 を `TINYMQ_BRIDGE_QUEUE_BYTES`(既定 2 KB)まで。再起動では消えます
 - arduino-pico の FreeRTOS モードでは `TinyMQLwipListener` を使えません(`TinyMQTcpListener` を使います)
 
 ## ライセンス

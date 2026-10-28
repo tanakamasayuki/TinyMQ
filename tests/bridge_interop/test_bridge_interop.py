@@ -26,8 +26,8 @@ OUTPUT = Path(__file__).parent / "output"
 class Dut(LineDut):
     def stats(self):
         self.send("STATS")
-        m = self.expect(r"^BSTATS a=(\d) out=(\d+) in=(\d+) dropped=(\d+) b=(\d) out=(\d+) in=(\d+)")
-        keys = ("a", "out", "in", "dropped", "b", "out_b", "in_b")
+        m = self.expect(r"^BSTATS a=(\d) out=(\d+) in=(\d+) dropped=(\d+) queued=(\d+) b=(\d) out=(\d+) in=(\d+)")
+        keys = ("a", "out", "in", "dropped", "queued", "b", "out_b", "in_b")
         return dict(zip(keys, (int(g) for g in m.groups())))
 
     def wait_bridges(self, a=1, b=1, timeout=10):
@@ -170,23 +170,32 @@ def test_bridge_interop(dut, record_property):
             run("both_no_loop", scenario_both_no_loop, lport, rport)
             run("bridge_311", scenario_bridge_311, lport, rport)
 
-        # upstream gone: messages out are dropped, the bridges try again
+        # upstream gone: QoS 0 out is dropped, QoS 1 / 2 kept; the bridges try again
         def down(d):
             s = d.wait_bridges(0, 0)
             before = s["dropped"]
             l = local(lport, "l-down")
-            l.publish("out/lost", "x", qos=1)
+            l.publish("out/lost", "x", qos=0)
+            l.publish("out/kept1", "k1", qos=1)
+            l.publish("out/kept2", "k2", qos=1)
             l.close()
             time.sleep(0.3)
-            assert d.stats()["dropped"] == before + 1
+            s = d.stats()
+            assert (s["dropped"], s["queued"]) == (before + 1, 2), s
 
         run("upstream_down", down)
 
         # back on the same port (no persistence: nothing kept upstream)
         def back(d):
-            with mosquitto(OUTPUT, bind=bind, port=rport):
+            with mosquitto(OUTPUT, bind=bind, port=rport) as (_, log_path):
                 d.wait_bridges(1, 1, timeout=15)
                 time.sleep(0.5)
+                assert d.stats()["queued"] == 0
+                log = log_path.read_text()
+                # the kept messages went up, in order
+                k1 = log.find("'edge1/out/kept1'")
+                k2 = log.find("'edge1/out/kept2'")
+                assert 0 <= k1 < k2, "kept messages not published upstream in order"
                 scenario_retained_upstream(d, lport, rport)  # taken up again on reconnect
                 scenario_in(d, lport, rport)                 # subscribed again upstream
                 scenario_out(d, lport, rport)

@@ -4,6 +4,9 @@
 
 TinyMQBridge::TinyMQBridge(Client &upstream) : client_(upstream)
 {
+#if TINYMQ_BRIDGE_QUEUE_BYTES > 0
+    pool_.begin(arena_, sizeof(arena_));
+#endif
     client_.onMessage(onRemote, this);
     client_.onConnect(onConnack, this);
 }
@@ -54,6 +57,48 @@ void TinyMQBridge::update(tinymq::Broker &engine, uint32_t now)
         client_.connectAsync();
     }
     client_.update();
+    if (queued_ && client_.connected())
+        sendKept();
+}
+
+void TinyMQBridge::keep(const tinymq::Message &m, uint8_t qos)
+{
+#if TINYMQ_BRIDGE_QUEUE_BYTES > 0
+    if (qos > 0 && queued_ < TINYMQ_BRIDGE_MAX_QUEUED) {
+        uint32_t h = store_.create(tinymq::Bytes(topic_), m.props, tinymq::Bytes(m.payload, (uint32_t)m.payloadLen), qos, m.retain);
+        if (h != tinymq::Pool::kNull) {
+            queue_[(queueHead_ + queued_++) % TINYMQ_BRIDGE_MAX_QUEUED] = h;
+            return;
+        }
+    }
+#else
+    (void)m;
+    (void)qos;
+#endif
+    ++dropped_;
+}
+
+void TinyMQBridge::sendKept()
+{
+#if TINYMQ_BRIDGE_QUEUE_BYTES > 0
+    // oldest first; what the client cannot take now waits for the next update()
+    while (queued_ && client_.connected()) {
+        uint32_t h = queue_[queueHead_];
+        tinymq::Bytes t = store_.topic(h);
+        memcpy(topic_, t.data, t.len);
+        topic_[t.len] = 0;
+        tinymq::Bytes p = store_.payload(h);
+        if (client_.publish(topic_, p.data, p.len, store_.qos(h), store_.retain(h), store_.props(h)) >= 0)
+            ++out_;
+        else if (client_.inflight() > 0)
+            return;      // upstream is busy: try again later
+        else
+            ++dropped_;  // upstream will never take it (too large, QoS, ...)
+        store_.release(h);
+        queueHead_ = (queueHead_ + 1) % TINYMQ_BRIDGE_MAX_QUEUED;
+        --queued_;
+    }
+#endif
 }
 
 void TinyMQBridge::onConnack(uint8_t reason, bool sessionPresent, void *self)
@@ -99,15 +144,16 @@ void TinyMQBridge::onLocal(const tinymq::Message &m, void *self)
         join(b.filter_, t.localPrefix, t.pattern);
         if (!tinymq::topicMatches(tinymq::Bytes(b.filter_), tinymq::Bytes(reinterpret_cast<const uint8_t *>(m.topic), m.topicLen)))
             continue;
-        if (!b.client_.connected() || !rewrite(b.topic_, m.topic, t.localPrefix, t.remotePrefix)) {
+        if (!rewrite(b.topic_, m.topic, t.localPrefix, t.remotePrefix)) {
             ++b.dropped_;
             return;
         }
         uint8_t qos = m.qos < t.qos ? m.qos : t.qos;
-        if (b.client_.publish(b.topic_, m.payload, m.payloadLen, qos, m.retain, m.props) >= 0)
-            ++b.out_;
+        // in order: behind what is kept, or kept when upstream cannot take it now
+        if (b.queued_ || !b.client_.connected() || b.client_.publish(b.topic_, m.payload, m.payloadLen, qos, m.retain, m.props) < 0)
+            b.keep(m, qos);
         else
-            ++b.dropped_;
+            ++b.out_;
         return;
     }
 }

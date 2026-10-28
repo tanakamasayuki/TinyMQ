@@ -48,7 +48,7 @@ SPEC §7 の順に進める。
   - [x] クライアント(CONNECT / CONNACK のプロパティ、プロパティ付きの publish、購読オプションと識別子、理由コード付きの DISCONNECT)。mosquitto と偽ブローカーで試験
   - [ ] 拡張認証(AUTH)。今は Authentication Method を CONNACK 0x8C で断る
 - [x] Phase 7: ブリッジ(`TinyMQBridge`)。ブローカーのタップ(自分の入れたものを受けない内部購読者)と `TinyMQClient` で、mosquitto の bridge 相当(out / in / both、プレフィックス、QoS)。再接続時に上流の購読とローカルの retain をやり直す
-  - [ ] 上流が落ちている間の out のメッセージを貯める(今は捨てて数える)
+  - [x] 上流が落ちている間の QoS 1 / 2 を預かり、戻ったら順に送る(`TINYMQ_BRIDGE_QUEUE_BYTES`)
 - [ ] Phase 8: lwIP の受け口、永続化のフック
   - [x] 永続化: `saveState()` / `loadState()`(保存先は `StateSink` / `StateSource` でスケッチが選ぶ)、retain の変化のコールバック、`end()`
   - [x] LittleFS に保存するサンプル(`Esp32Persist`)

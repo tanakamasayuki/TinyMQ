@@ -231,7 +231,8 @@ lwIP のコールバックは受信を溜めるだけで、ブローカーは `u
 | `setReconnectInterval(uint32_t ms)` | 再接続の間隔(既定 5 秒) |
 | `bool addTopic(pattern, Direction dir, uint8_t qos = 0, const char *localPrefix = "", const char *remotePrefix = "")` | 対応表。ローカル側は `localPrefix + pattern`、上流側は `remotePrefix + pattern`。`dir` は `kOut`(ローカル → 上流)/ `kIn`(上流 → ローカル)/ `kBoth`。最大 `TINYMQ_BRIDGE_MAX_TOPICS` |
 | `bool connected()` | 上流とつながっているか |
-| `forwardedOut()` / `forwardedIn()` / `dropped()` | 転送した数、捨てた数(上流が落ちていた、トピックが長すぎた) |
+| `forwardedOut()` / `forwardedIn()` / `dropped()` | 転送した数、捨てた数(上流が落ちている間の QoS 0、預かる領域が一杯、トピックが長すぎた) |
+| `queued()` | 上流が戻るまで預かっている QoS 1 / 2 の数 |
 
 QoS は、メッセージの QoS と対応表の QoS の小さい方です。つながるたびに、上流の購読とローカルの retain の送信をやり直します。
 

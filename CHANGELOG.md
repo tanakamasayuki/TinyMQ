@@ -1,6 +1,8 @@
 # Changelog / 変更履歴
 
 ## Unreleased
+- (EN) TinyMQBridge keeps QoS 1 / 2 messages for upstream while it is down and sends them in order once it is back.
+- (JA) TinyMQBridge が、上流が落ちている間の QoS 1 / 2 を預かり、戻ったら順に送る。
 - (EN) $SYS/broker/... topics (setSysInterval(), off by default) and message counters in the broker.
 - (JA) ブローカーの $SYS/broker/... トピック(setSysInterval()、既定は出さない)とメッセージの数。
 - (EN) README, beginner's and advanced guides, API reference (English and Japanese), six examples with READMEs, keywords.txt.

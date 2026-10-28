@@ -36,7 +36,8 @@ public:
     bool connected() const { return client_.connected(); }
     uint32_t forwardedOut() const { return out_; }
     uint32_t forwardedIn() const { return in_; }
-    uint32_t dropped() const { return dropped_; }  // out while upstream was down, or a topic too long
+    uint32_t dropped() const { return dropped_; }  // QoS 0 out while upstream was down, the queue full, or a topic too long
+    size_t queued() const { return queued_; }       // QoS 1 / 2 kept for upstream
 
     void update(tinymq::Broker &engine, uint32_t now) override;
 
@@ -57,6 +58,8 @@ private:
     static bool join(char *buf, const char *prefix, const char *pattern);
     // Topic `topic` under `from` prefix, re-rooted under `to`; false if too long
     static bool rewrite(char *buf, const char *topic, const char *from, const char *to);
+    void keep(const tinymq::Message &m, uint8_t qos);  // for when upstream is back
+    void sendKept();
 
     TinyMQClient client_;
     tinymq::Broker *engine_ = nullptr;
@@ -70,4 +73,12 @@ private:
     uint32_t dropped_ = 0;
     char filter_[TINYMQ_MAX_TOPIC_LEN + 1];
     char topic_[TINYMQ_MAX_TOPIC_LEN + 1];
+#if TINYMQ_BRIDGE_QUEUE_BYTES > 0
+    alignas(4) uint8_t arena_[TINYMQ_BRIDGE_QUEUE_BYTES];
+    tinymq::Pool pool_;
+    tinymq::MessageStore store_{pool_};
+    uint32_t queue_[TINYMQ_BRIDGE_MAX_QUEUED];
+    size_t queueHead_ = 0;
+#endif
+    size_t queued_ = 0;
 };

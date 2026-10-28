@@ -231,7 +231,8 @@ A bridge from the broker to an upstream broker. Register it as a listener with `
 | `setReconnectInterval(uint32_t ms)` | reconnect interval (default 5 s) |
 | `bool addTopic(pattern, Direction dir, uint8_t qos = 0, const char *localPrefix = "", const char *remotePrefix = "")` | Mapping table. The local side is `localPrefix + pattern`, the upstream side `remotePrefix + pattern`. `dir` is `kOut` (local to upstream) / `kIn` (upstream to local) / `kBoth`. Up to `TINYMQ_BRIDGE_MAX_TOPICS` |
 | `bool connected()` | whether connected to the upstream |
-| `forwardedOut()` / `forwardedIn()` / `dropped()` | number forwarded, number dropped (the upstream was down, the topic was too long) |
+| `forwardedOut()` / `forwardedIn()` / `dropped()` | number forwarded, number dropped (QoS 0 while upstream was down, the queue full, the topic too long) |
+| `queued()` | QoS 1 / 2 messages kept until upstream is back |
 
 The QoS is the lower of the message's QoS and the mapping's QoS. On every connect, the upstream subscriptions and the sending of local retained messages are redone.
 

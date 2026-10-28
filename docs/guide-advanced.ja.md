@@ -65,6 +65,8 @@ Arduino 側のクラスは、`tinymq::` のエンジンと Arduino の `Client` 
 | `TINYMQ_SN_CLIENT_MAX_TOPICS` | 8 | MQTT-SN クライアントが覚えるトピック ID |
 | `TINYMQ_SN_CLIENT_TOPIC_LEN` | 32 | そのトピック名の最大長 |
 | `TINYMQ_BRIDGE_MAX_TOPICS` | 8 | ブリッジごとの対応表 |
+| `TINYMQ_BRIDGE_QUEUE_BYTES` | 2048 | 上流が落ちている間に預かる QoS 1 / 2 の領域(0: 預からない) |
+| `TINYMQ_BRIDGE_MAX_QUEUED` | 16 | その件数 |
 
 Arduino IDE は `-D` を渡す場所がありません。arduino-cli なら `--build-property "compiler.cpp.extra_flags=-DTINYMQ_BROKER_MAX_CLIENTS=4"`、PlatformIO なら `build_flags` で渡します。ライブラリ全体に効くので、スケッチの中の `#define` では変わりません。
 
@@ -190,7 +192,7 @@ broker.addListener(bridge);
 - 対応表は mosquitto の `topic <pattern> <方向> <QoS> <ローカルのプレフィックス> <上流のプレフィックス>` と同じ考え方です
 - **ループ**: ブリッジは、自分がブローカーに入れたメッセージを受け取りません。上流側は、5.0 なら No Local で購読するので、`kBoth` でも戻ってきません。3.1.1 で `kBoth` を使うなら、両側で別のプレフィックスにしてください
 - retain フラグは保ったまま転送します。つながるたびに、上流の購読とローカルの retain の送信をやり直します(上流が retain を失っていても戻る)
-- 上流が落ちている間に外へ出すメッセージは捨てて数えます(`dropped()`)。上流へ確実に届けたいものは、上流側を永続セッションにする、送る側で QoS と再送を工夫する、などで補ってください
+- 上流が落ちている間(または上流の送信中が一杯の間)に外へ出す QoS 1 / 2 は、ブリッジが預かり(`queued()`、`TINYMQ_BRIDGE_QUEUE_BYTES` / `TINYMQ_BRIDGE_MAX_QUEUED`)、つながったら古い順に送ります。QoS 0 と、預かりきれないものは捨てて数えます(`dropped()`)。預かったものは再起動で消えます
 - 上流への接続は `connectAsync()` で始めるので、CONNACK を待つ間もブローカーは止まりません(TCP の接続そのものは Client の `connect()` の分だけ待ちます)
 
 ## 9. 認証と認可
@@ -243,5 +245,5 @@ broker.onAuthorize(onAcl);
 
 - MQTT-SN のゲートウェイとクライアントは IPv4 のみ
 - MQTT 5.0 の拡張認証(AUTH)、ブローカー側の TLS、WebSocket、MQTT-SN 2.0 は対象外
-- ブリッジは、上流が落ちている間のメッセージを貯めません
+- ブリッジが預かるメッセージは RAM の中だけ(再起動で消える)
 - ブローカーはトピックエイリアスを自分からは使いません(受けるだけ)

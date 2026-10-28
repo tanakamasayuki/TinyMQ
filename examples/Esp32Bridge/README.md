@@ -31,5 +31,5 @@ upstream up, out 3, in 1, dropped 0
 ## Notes
 
 - On a 5.0 upstream connection the bridge subscribes with No Local, so `kBoth` topics do not loop. On 3.1.1 give the two sides different prefixes.
-- Messages going out while upstream is down are dropped and counted (`dropped`). Every connect subscribes upstream again and takes the local retained messages up again.
+- QoS 1 / 2 messages going out while upstream is down are kept and sent once it is back; QoS 0 and what does not fit are dropped and counted (`dropped`). Every connect subscribes upstream again and takes the local retained messages up again.
 - For TLS, make the `WiFiClient` a `WiFiClientSecure` and set its certificates.
