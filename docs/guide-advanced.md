@@ -192,7 +192,7 @@ broker.addListener(bridge);
 - The mapping follows the same idea as mosquitto's `topic <pattern> <direction> <QoS> <local prefix> <remote prefix>`
 - **Loops**: a bridge does not receive the messages it put into the broker itself. Upstream, with 5.0 it subscribes with No Local, so messages do not come back even with `kBoth`. If you use `kBoth` with 3.1.1, use different prefixes on the two sides
 - The retain flag is kept when forwarding. On every connect, the bridge redoes the upstream subscriptions and the sending of local retained messages (so they come back even if upstream lost them)
-- Outgoing messages while upstream is down are dropped and counted (`dropped()`). For what must reach upstream, make up for it with a persistent session on the upstream side, or with QoS and resending on the sending side
+- QoS 1 / 2 messages going out while upstream is down (or while its in-flight window is full) are kept by the bridge (`queued()`, `TINYMQ_BRIDGE_QUEUE_BYTES` / `TINYMQ_BRIDGE_MAX_QUEUED`) and sent oldest first once it is back. QoS 0 and what does not fit are dropped and counted (`dropped()`). A restart loses what was kept
 - The upstream connection starts with `connectAsync()`, so the broker does not stall while waiting for CONNACK (the TCP connection itself still waits as long as the Client's `connect()` does)
 
 ## 9. Authentication and authorization
