@@ -24,7 +24,7 @@ Some uses:
 - [Advanced guide](docs/guide-advanced.md): structure, memory and configuration, choosing a listener, QoS and sessions, MQTT 5.0, MQTT-SN, bridges, persistence, authentication and authorization, execution model
 - [API reference](docs/api.md): every public class and method
 - [Specification](SPEC.md): design and measurements
-- [Tests](tests/README.ja.md) (Japanese): the test suites and how to run them
+- [Tests](tests/README.md): the test suites and how to run them
 
 ## Examples
 

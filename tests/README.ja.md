@@ -1,5 +1,7 @@
 # テスト
 
+[English](README.md)
+
 TinyWG と同じく、[pytest-embedded](https://docs.espressif.com/projects/pytest-embedded/en/latest/) + Arduino CLI([pytest-embedded-arduino-cli](https://github.com/tanakamasayuki/pytest-embedded-arduino-cli))で動かします。既定のプロファイルは `lang-ship:host`(PC 上で動くスケッチ)です。
 
 ```sh
