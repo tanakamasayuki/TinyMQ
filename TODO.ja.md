@@ -42,7 +42,7 @@ SPEC §7 の順に進める。
   - [ ] CH32V307(Ethernet。小さい設定のブローカーと lwIP の受け口でビルドは通る: Flash 59 KB / RAM 47 KB、うち lwIP 約 37 KB、Network ライブラリ)。ブローカーの軽い構成と MQTT-SN クライアント。ベンチのロックを取って使う
   - [ ] Pico W(つながっていない)
   - [x] ブローカーの遅延と速さ(`bench_broker`、ESP32-S3。SPEC §5.2)。途中で `TinyMQLwipListener` の 3 つの問題(遅延 ACK、送信キューのセグメント数、セグメントのまとめ)を直した
-  - [ ] ESP32(D0WDQ6)での計測。ほかのスイートが使っていて書き込みに失敗した
+  - [ ] ESP32(D0WDQ6)での計測。ほかのスイートが使っていて書き込みに失敗した。組の相手(1-1)のロックも取ってやり直す
   - [ ] 接続数ごとの RAM の計測、TinyWG との組み合わせ
 - [ ] Phase 6: MQTT 5.0
   - [x] プロパティのコーデック
@@ -74,6 +74,10 @@ SPEC §7 の順に進める。
 ## 環境メモ
 
 - **実機の試験**: `tests/.env` は TinyWG と同じボード(`/run/board-identify/by-id/...`)と Wi-Fi を使う。ボードはほかのスイートと共有で、シリアルはプラグインが排他する
+- **常駐ベンチでの名前と組**(oep-bench の台帳、2026-10-30 に [oep] から): `esp32` = 1-2 `esp32-irrx`(`esp32-d0wdq6-ec62608443a8`)、`esp32s3` = 1-3 `s3-irrx`(`esp32-s3-d0cf1359101c`)、`ch32v307` = 3-2 `v307`(`ch32v307vct6-7bbed00a9c1c5054`、ch32rv からは `wchlink://38EF8F06BDC2`)
+  - 1-2 は 1-1 と IR の組、1-3 は 1-4 と IR と GPIO19/20 の直結の組。組の相手の試験の firmware が IR や GPIO19/20 を動かすことがあるので、**組の相手の機器ロックも取る**規則(pytest では peer として宣言)。TinyMQ は Wi-Fi だけだが、1-1 / 1-4 のロックも取ると安全。まだ対応していない
+  - 3-2 は WCH-Link の機材なので、機器ロックに加えて `/home/mt/dev_oep/oep-bench/locks/bench.lock` も取る
+  - 2026-10-28 の 1-2 への書き込み失敗(`Unable to verify flash chip connection`)と 1-3 の POWERON リセットは、組の相手のロックを取らずに EspUsbDevice-v3 / ESP32IRPulseKit と同時に動かしたためと考えられる(同じ機材への書き込みが重なるとこの失敗になる)
 
 - **mosquitto**: この PC には入っていない(sudo にパスワードが要る)。`tests/tools/fetch_mosquitto.sh` で `tests/.tools/mosquitto` に展開して使っている(git 管理外)
 
