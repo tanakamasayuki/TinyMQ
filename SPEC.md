@@ -238,6 +238,17 @@ ESP32-P4 (bench 2-3, wired Ethernet at 100 Mbps, 2026-10-31):
 - arduino-esp32 for the P4 is built without lwIP's core lock (`CONFIG_LWIP_TCPIP_CORE_LOCKING`). `TinyMQLwipListener` then hands its lwIP calls to lwIP's thread with `tcpip_api_call()` (a thread switch each time). Before this was noticed, it used lwIP without a lock and connections broke.
 - One-to-one QoS 0 drops what overflows the subscriber's queue, because the PC sends faster (the same reason as on the S3).
 
+RAM per connection (2026-10-31, `bench_broker`: six clients connected with a subscription each, free heap before and after):
+
+| | ESP32-S3 (Wi-Fi) | ESP32-P4 (Ethernet) |
+|---|---|---|
+| `TinyMQBroker` itself (static, 8 connections, default settings) | 37996 bytes | 37996 bytes |
+| Heap per connection, `TinyMQTcpListener<WiFiServer>` | 1271 bytes | 2599 bytes |
+| Heap per connection, `TinyMQLwipListener` | 267 bytes | 261 bytes |
+
+- Each connection in `TINYMQ_BROKER_MAX_CLIENTS` takes about 1.1 KB of the broker's static size: the receive buffer (`TINYMQ_BROKER_RX_BUFFER`, 1024 bytes) and its state. With `TINYMQ_PRESET_SMALL` the broker is about 16 KB smaller at any number of connections (tables and pool)
+- The heap is lwIP's PCB and the core's client object; `WiFiClient` keeps more of its own per connection than the lwIP listener
+
 ## 6. Testing
 
 The same structure as TinyWG (pytest-embedded + Arduino CLI, the `TEST done N/M` protocol, cores pinned by `sketch.yaml` profiles).

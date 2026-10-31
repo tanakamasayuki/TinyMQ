@@ -238,6 +238,17 @@ ESP32-P4(2-3、有線 LAN 100 Mbps、2026-10-31):
 - P4 用の arduino-esp32 は lwIP のコアロック(`CONFIG_LWIP_TCPIP_CORE_LOCKING`)なしでビルドされている。`TinyMQLwipListener` はそのとき lwIP の呼び出しを `tcpip_api_call()` で lwIP のスレッドに渡す(1 回ごとにスレッドの切り替えが入る)。これに気づく前は、ロックなしで lwIP を触って接続が壊れていた
 - 1 対 1 の QoS 0 は、PC が送るほうが速く、購読者のキューが溢れた分を落としている(S3 と同じ理由)
 
+接続ごとの RAM(2026-10-31、`bench_broker`: 購読付きのクライアントを 6 本つなぎ、前後の空きヒープを比べた):
+
+| | ESP32-S3(Wi-Fi) | ESP32-P4(有線 LAN) |
+|---|---|---|
+| `TinyMQBroker` 自体(静的、8 接続、既定の設定) | 37996 バイト | 37996 バイト |
+| 接続ごとのヒープ、`TinyMQTcpListener<WiFiServer>` | 1271 バイト | 2599 バイト |
+| 接続ごとのヒープ、`TinyMQLwipListener` | 267 バイト | 261 バイト |
+
+- `TINYMQ_BROKER_MAX_CLIENTS` の 1 接続ごとに、ブローカーの静的な大きさが約 1.1 KB 増える(受信バッファ `TINYMQ_BROKER_RX_BUFFER` の 1024 バイトと状態)。`TINYMQ_PRESET_SMALL` では、接続数によらず約 16 KB 小さい(表とプール)
+- ヒープは lwIP の PCB とコアのクライアントのオブジェクト。`WiFiClient` は、lwIP の受け口より接続ごとに多くを持つ
+
 ## 6. テスト方針
 
 TinyWG と同じ構成(pytest-embedded + Arduino CLI、`TEST done N/M` プロトコル、`sketch.yaml` のプロファイルでコアを固定)を踏襲する。

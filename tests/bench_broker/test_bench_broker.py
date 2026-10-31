@@ -1,6 +1,7 @@
 """Measurements of TinyMQBroker from the PC with paho-mqtt: round-trip
 latency, one-to-one throughput and one-to-four fan-out, through each
-listener the DUT has. Values are printed as BENCH <name> <value> <unit> and
+listener the DUT has, and the heap one more connection takes (boards that
+report their free heap). Values are printed as BENCH <name> <value> <unit> and
 kept as junit properties; the test fails only if QoS 1 messages go missing
 (QoS 0 may be dropped when a subscriber falls behind: the share delivered
 is recorded).
@@ -14,6 +15,7 @@ import time
 
 import paho.mqtt.client as mqtt
 
+from helpers import mqtt_packets as mp
 from helpers import target
 from helpers.line_dut import LineDut
 from helpers.mosquitto import free_port
@@ -90,6 +92,37 @@ def throughput(port, qos, subscribers=1, n=1000, size=100):
             s.close()
 
 
+def stats(d):
+    d.send("STATS")
+    line = d.expect(r"^STATS .*").group(0)
+    return dict(kv.split("=") for kv in line.split()[1:])
+
+
+def heap_per_connection(d, port, n=6):
+    """Free heap taken by each of `n` connected clients with a subscription, in bytes."""
+    deadline = time.time() + 30
+    before = stats(d)
+    while int(before["clients"]) and time.time() < deadline:  # earlier peers still closing
+        time.sleep(1)
+        before = stats(d)
+    if "heap" not in before:
+        return None
+    clients = []
+    try:
+        for i in range(n):
+            r = mp.RawClient(port)
+            r.connect(f"heap{i}")
+            r.subscribe(1, [(f"heap/{i}", 1)])
+            clients.append(r)
+        time.sleep(0.5)
+        after = stats(d)
+        assert int(after["clients"]) == int(before["clients"]) + n, after
+    finally:
+        for r in clients:
+            r.close()
+    return (int(before["heap"]) - int(after["heap"])) / n
+
+
 def test_bench_broker(dut, record_property):
     d = LineDut(dut)
     ip = d.ready()
@@ -123,8 +156,13 @@ def test_bench_broker(dut, record_property):
             got, rate = throughput(p, 0, subscribers=4, n=500)
             bench(f"{kind}_fanout4_qos0", rate, "deliveries/s")
             bench(f"{kind}_fanout4_delivered", 100 * got / 2000, "%")
-        d.send("STATS")
-        print(d.expect(r"^STATS .*").group(0))
+        for kind, p in listeners:
+            per = heap_per_connection(d, p)
+            if per is not None:
+                bench(f"{kind}_heap_per_connection", per, "bytes")
+        s = stats(d)
+        print("STATS", s)
+        bench("broker_static", int(s["broker"]), "bytes")
     finally:
         target.HOST = "127.0.0.1"
     assert not missing, missing

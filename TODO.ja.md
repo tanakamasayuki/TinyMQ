@@ -50,7 +50,9 @@ SPEC §7 の順に進める。
   - [x] ESP32-P4(2-3、有線 LAN): 単体テスト 6 本と 5 つの相互接続試験(`broker_interop` 72 シナリオ、うち lwIP の受け口 29)、ブリッジ、計測(SPEC §5.2)が通過(2026-10-31)。途中で直したこと: P4 のコアは lwIP のコアロックなしなので、`TinyMQLwipListener` の lwIP の呼び出しを lwIP のスレッドで行うようにした。CH340 が起動時に拾うゴミの 1 バイトで最初のコマンドが壊れるので、試験は READY のあとに空行を送る
   - [x] ブローカーの遅延と速さ(`bench_broker`、ESP32-S3。SPEC §5.2)。途中で `TinyMQLwipListener` の 3 つの問題(遅延 ACK、送信キューのセグメント数、セグメントのまとめ)を直した
   - [x] ESP32(D0WDQ6、1-2)での計測(2026-10-31、SPEC §5.2)
-  - [ ] 接続数ごとの RAM の計測、TinyWG との組み合わせ
+  - [x] 接続数ごとの RAM の計測(ESP32-S3 / P4、SPEC §5.2。2026-10-31)
+  - [ ] TinyWG との組み合わせ(PC 側に TCP を通せる WireGuard のピアが要る)
+  - [ ] ESP32(1-2)への書き込みが 2026-10-31 の夕方に失敗(`Unable to verify flash chip connection`)。ボード側の問題か未確認
 - [ ] Phase 6: MQTT 5.0
   - [x] プロパティのコーデック
   - [x] ブローカー(セッション / メッセージの有効期限、Will Delay、購読識別子と購読オプション、共有購読、受信側のトピックエイリアス、Receive Maximum、Maximum Packet Size、理由コード)
@@ -68,7 +70,7 @@ SPEC §7 の順に進める。
 
 - [x] README、初心者ガイド、上級者ガイド、API リファレンス(日英)、サンプル 6 本(日英の README)、`keywords.txt`
 - [ ] サンプルの実機での確認(今はビルドのみ。`Esp32Client` / `Esp32Broker` などは相互接続試験と同じ使い方)
-- [ ] `tests/README` の英語版
+- [x] `tests/README` の英語版
 
 ## 未決定(TBD)
 

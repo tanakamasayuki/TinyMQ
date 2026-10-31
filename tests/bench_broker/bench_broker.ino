@@ -2,7 +2,8 @@
 // the Arduino WiFiServer (TinyMQTcpListener) and, on boards with lwIP, on
 // lwIP's raw API too (TinyMQLwipListener, port + 1).
 //
-// Commands: LISTEN <port>  ->  LISTENING <port> [lwip=<port>]   STATS -> heap and pool use
+// Commands: LISTEN <port>  ->  LISTENING <port> [lwip=<port>]
+//   STATS  ->  STATS pool=<used> dropped=<n> clients=<n> broker=<sizeof> [heap=<free bytes>]
 
 #include <TinyMQ.h>
 
@@ -52,7 +53,19 @@ void loop()
                 Serial.print("STATS pool=");
                 Serial.print((unsigned)broker.poolUsed());
                 Serial.print(" dropped=");
-                Serial.println((unsigned long)broker.droppedMessages());
+                Serial.print((unsigned long)broker.droppedMessages());
+                Serial.print(" clients=");
+                Serial.print((unsigned)broker.engine().clients());
+                Serial.print(" broker=");
+                Serial.print((unsigned)sizeof(broker));
+#if defined(ARDUINO_ARCH_ESP32)
+                Serial.print(" heap=");
+                Serial.print((unsigned long)ESP.getFreeHeap());
+#elif defined(ARDUINO_ARCH_RP2040)
+                Serial.print(" heap=");
+                Serial.print((unsigned long)rp2040.getFreeHeap());
+#endif
+                Serial.println();
             }
             len = 0;
         } else if (len + 1 < sizeof(line)) {
