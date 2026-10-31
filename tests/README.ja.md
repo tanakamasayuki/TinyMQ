@@ -36,6 +36,7 @@ tests/tools/fetch_mosquitto.sh
 | `bridge_interop/` | `TinyMQBridge` を 2 本(5.0 と 3.1.1)つないだブローカーを、PC の mosquitto へブリッジ。ブリッジ前の retain を上流へ送ること、out / in / both の転送とプレフィックスの付け替え、QoS の上限、5.0 のプロパティの中継、both でループしないこと、上流が落ちている間の破棄、同じポートで戻った上流への再接続(購読と retain のやり直し) | host / esp32 / esp32s3 / esp32p4 / picow |
 | `broker_conformance/` | Eclipse paho.mqtt.testing の相互接続試験スイート(3.1.1 と 5.0)を `TinyMQBroker` に当てる。外部のコードを実行するので、`tools/fetch_paho_testing.sh` で取得し、`TINYMQ_RUN_PAHO_TESTING=1` を付けたときだけ動く。**まだ通しで実行していない** | host / esp32 / esp32s3 / esp32p4 / picow |
 | `bench_broker/` | ブローカーの計測。PC の paho-mqtt から、受け口ごとに往復の遅延(QoS 0 / 1)、1 対 1 の連続送信、1 対 4 の配送。`BENCH <名前> <値> <単位>` で出し、junit の property にも残す。QoS 1 が欠けたときだけ失敗 | host / esp32 / esp32s3 / esp32p4 / picow |
+| `example_*/` | サンプルを実機で動かす。`tools/sync_examples.py` がサンプルを写し、設定だけを `.env` からのマクロにする(`TEST_WIFI_SSID` / `TEST_WIFI_PASSWORD`、`TEST_HOST_IP`: ボードから見た PC)。どの試験も、まず写しが最新かを確かめる。`Esp32Broker`(TCP と MQTT-SN の QoS -1 がスケッチに届く)、`Esp32Client` と `Esp32Bridge`(PC の 1883 番の mosquitto)、`Esp32Persist`(retain がリセット後も残る)、`Ch32SnSensor`(PC の UDP 1884 番に置いた台本のゲートウェイ) | esp32 / esp32s3、ch32v307 |
 | `pool/` | メッセージプールの確保・解放・結合・枯渇・アライメント、2 万回のランダムな確保と解放、参照カウント付きメッセージ | 同上 |
 
 ## 実機で動かす

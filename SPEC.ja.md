@@ -240,11 +240,11 @@ ESP32-P4(2-3、有線 LAN 100 Mbps、2026-10-31):
 
 接続ごとの RAM(2026-10-31、`bench_broker`: 購読付きのクライアントを 6 本つなぎ、前後の空きヒープを比べた):
 
-| | ESP32-S3(Wi-Fi) | ESP32-P4(有線 LAN) |
-|---|---|---|
-| `TinyMQBroker` 自体(静的、8 接続、既定の設定) | 37996 バイト | 37996 バイト |
-| 接続ごとのヒープ、`TinyMQTcpListener<WiFiServer>` | 1271 バイト | 2599 バイト |
-| 接続ごとのヒープ、`TinyMQLwipListener` | 267 バイト | 261 バイト |
+| | ESP32(Wi-Fi) | ESP32-S3(Wi-Fi) | ESP32-P4(有線 LAN) |
+|---|---|---|---|
+| `TinyMQBroker` 自体(静的、8 接続、既定の設定) | 37996 バイト | 37996 バイト | 37996 バイト |
+| 接続ごとのヒープ、`TinyMQTcpListener<WiFiServer>` | 1424 バイト | 1271 バイト | 2599 バイト |
+| 接続ごとのヒープ、`TinyMQLwipListener` | 260 バイト | 267 バイト | 261 バイト |
 
 - `TINYMQ_BROKER_MAX_CLIENTS` の 1 接続ごとに、ブローカーの静的な大きさが約 1.1 KB 増える(受信バッファ `TINYMQ_BROKER_RX_BUFFER` の 1024 バイトと状態)。`TINYMQ_PRESET_SMALL` では、接続数によらず約 16 KB 小さい(表とプール)
 - ヒープは lwIP の PCB とコアのクライアントのオブジェクト。`WiFiClient` は、lwIP の受け口より接続ごとに多くを持つ

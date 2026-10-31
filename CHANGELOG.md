@@ -1,6 +1,8 @@
 # Changelog / 変更履歴
 
 ## Unreleased
+- (EN) Examples: Esp32Client and Ch32SnSensor subscribe again after a reconnect (they lost their subscription before). The examples run on boards in tests/example_*, with settings from tests/.env.
+- (JA) サンプル: Esp32Client と Ch32SnSensor が再接続のあとも購読し直す(以前は購読が消えていた)。サンプルを tests/example_* で実機で動かす(設定は tests/.env から)。
 - (EN) MQTT-SN gateway: Forwarder Encapsulation (each Wireless Node Id behind a forwarder is a client of its own) and a source filter callback (setSourceFilter()).
 - (JA) MQTT-SN ゲートウェイ: Forwarder Encapsulation(フォワーダーの後ろのノード ID ごとに別のクライアント)と送信元のフィルター(setSourceFilter())。
 - (EN) MQTT 5.0 enhanced authentication (AUTH) with re-authentication: TinyMQBroker::onEnhancedAuth() and TinyMQClient::onAuth() / reauthenticate(), one callback per step.

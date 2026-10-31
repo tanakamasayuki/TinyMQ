@@ -25,6 +25,17 @@ static void onMessage(const tinymq::Message &m, void *)
     Serial.println();
 }
 
+// en: Called on every CONNACK, the reconnects too: subscribe here, since a clean session starts with none.
+// ja: 再接続も含め、CONNACK のたびに呼ばれる。クリーンセッションは購読なしで始まるので、ここで購読する。
+static void onConnect(uint8_t reason, bool, void *)
+{
+    if (reason != tinymq::kSuccess)
+        return;
+    Serial.println("connected");
+    mqtt.publish("tinymq/status", "online", 1, true);
+    mqtt.subscribe("tinymq/cmd", 1);
+}
+
 void setup()
 {
     Serial.begin(115200);
@@ -45,11 +56,8 @@ void setup()
     mqtt.setWill("tinymq/status", "offline", 1, true);  // en: published if we vanish / ja: 黙って消えたときに出る
     mqtt.setReconnectInterval(5000);                    // en: keep trying / ja: 切れたら 5 秒ごとにつなぎ直す
     mqtt.onMessage(onMessage);
-    if (mqtt.connect()) {
-        Serial.println("connected");
-        mqtt.publish("tinymq/status", "online", 1, true);
-        mqtt.subscribe("tinymq/cmd", 1);
-    } else {
+    mqtt.onConnect(onConnect);
+    if (!mqtt.connect()) {
         Serial.print("connect failed, reason 0x");
         Serial.println(mqtt.lastReason(), HEX);
     }

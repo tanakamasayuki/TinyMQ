@@ -24,6 +24,16 @@ static void onMessage(const tinymq::SnMessage &m, void *)
     Serial.println(on ? "on" : "off");
 }
 
+// en: Connect and subscribe; again after the gateway was lost, since the new session has no subscriptions.
+// ja: 接続して購読する。ゲートウェイを見失ったあとも同じで、新しいセッションには購読がない。
+static void connectAndSubscribe()
+{
+    if (sn.connect() && sn.subscribe("cmd/led", 1) >= 0)
+        Serial.println("connected");
+    else
+        Serial.println("no gateway");
+}
+
 void setup()
 {
     Serial.begin(115200);
@@ -46,10 +56,7 @@ void setup()
     sn.setClientId("ch32-sensor");
     sn.setKeepAlive(60);
     sn.onMessage(onMessage);
-    if (sn.connect() && sn.subscribe("cmd/led", 1) >= 0)
-        Serial.println("connected");
-    else
-        Serial.println("no gateway");
+    connectAndSubscribe();
 }
 
 void loop()
@@ -66,5 +73,5 @@ void loop()
             sn.publishPredefined(1, text);           // en: QoS -1: no connection needed / ja: QoS -1 は接続なしで送れる
     }
     if (!sn.connected() && millis() % 30000 < 10)
-        sn.connect();
+        connectAndSubscribe();
 }

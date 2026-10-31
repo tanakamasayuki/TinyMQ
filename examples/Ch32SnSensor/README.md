@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md) | [Beginner's guide](../../docs/guide-beginner.md)
 
-Makes a CH32V with Ethernet an MQTT-SN client. Every 10 s it publishes its uptime in seconds to `sensors/uptime`, and `cmd/led` switches an LED (`on` or anything else). When it is not connected to the gateway, it sends to predefined topic id 1 with QoS −1 (no connection).
+Makes a CH32V with Ethernet an MQTT-SN client. Every 10 s it publishes its uptime in seconds to `sensors/uptime`, and `cmd/led` switches an LED (`on` or anything else). When it is not connected to the gateway, it sends to predefined topic id 1 with QoS −1 (no connection), and tries to connect (and subscribe again) every 30 s.
 
 ## What you need
 

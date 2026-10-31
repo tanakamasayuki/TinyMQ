@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md) | [Beginner's guide](../../docs/guide-beginner.md)
 
-Connects to an MQTT broker and publishes a counter to `tinymq/counter` every 5 s. It subscribes to `tinymq/cmd` and prints what arrives. On connecting it publishes `online` (retained) to `tinymq/status`; if it vanishes, its will publishes `offline` there.
+Connects to an MQTT broker and publishes a counter to `tinymq/counter` every 5 s. It subscribes to `tinymq/cmd` and prints what arrives. On every connection, reconnects included, it subscribes again and publishes `online` (retained) to `tinymq/status` (`onConnect()`); if it vanishes, its will publishes `offline` there.
 
 ## What you need
 

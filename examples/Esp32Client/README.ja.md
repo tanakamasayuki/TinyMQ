@@ -2,7 +2,7 @@
 
 [English](README.md) | [初心者ガイド](../../docs/guide-beginner.ja.md)
 
-MQTT ブローカーに接続し、5 秒ごとに `tinymq/counter` へカウンタを publish します。`tinymq/cmd` を購読し、届いたものをシリアルに表示します。接続時に `tinymq/status` へ `online`(retain)を出し、黙って切れたときは will で `offline` が出ます。
+MQTT ブローカーに接続し、5 秒ごとに `tinymq/counter` へカウンタを publish します。`tinymq/cmd` を購読し、届いたものをシリアルに表示します。再接続も含めて接続のたびに(`onConnect()`)、購読し直して `tinymq/status` へ `online`(retain)を出します。黙って切れたときは will で `offline` が出ます。
 
 ## 必要なもの
 

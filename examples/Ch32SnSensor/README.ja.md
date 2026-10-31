@@ -2,7 +2,7 @@
 
 [English](README.md) | [初心者ガイド](../../docs/guide-beginner.ja.md)
 
-Ethernet 付きの CH32V を MQTT-SN のクライアントにします。10 秒ごとに起動からの秒数を `sensors/uptime` に publish し、`cmd/led` の `on` / それ以外で LED を切り替えます。ゲートウェイにつながっていないときは、事前定義トピック ID 1 に QoS −1(接続なし)で送ります。
+Ethernet 付きの CH32V を MQTT-SN のクライアントにします。10 秒ごとに起動からの秒数を `sensors/uptime` に publish し、`cmd/led` の `on` / それ以外で LED を切り替えます。ゲートウェイにつながっていないときは、事前定義トピック ID 1 に QoS −1(接続なし)で送り、30 秒ごとに接続(と購読のやり直し)を試みます。
 
 ## 必要なもの
 

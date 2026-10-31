@@ -25,7 +25,7 @@ SPEC §7 の順に進める。
 - [x] Phase 1: core(3.1.1 / 5.0 のコーデック、トピック照合、メッセージプール)と host の単体テスト。5.0 のプロパティは生のまま保持するところまで(解釈は Phase 6)。購読表はセッションと一緒に Phase 3 で作る
 - [x] Phase 2: `TinyMQClient`(3.1.1 / 3.1)と mosquitto・偽ブローカーとの相互接続。プロトコルの処理は `tinymq::ClientEngine`(Arduino 非依存)、`TinyMQClient` は `Client&` のアダプタ
 - [x] Phase 3: `TinyMQBroker`(3.1.1 / 3.1)+ `TinyMQTcpListener`、ローカルクライアント、認証・認可のコールバック、paho-mqtt と生ソケットでの試験
-  - [ ] Eclipse paho.mqtt.testing の相互接続試験スイートを当てる。仕組み(`broker_conformance/`、`tools/fetch_paho_testing.sh`、`helpers/run_paho_suite.py`)はできたが、外部のコードの実行が自動モードで止められたので未実行。`TINYMQ_RUN_PAHO_TESTING=1 uv run pytest broker_conformance -s` で動かす
+  - [ ] Eclipse paho.mqtt.testing の相互接続試験スイートを当てる。仕組み(`broker_conformance/`、`tests/tools/fetch_paho_testing.sh`、`helpers/run_paho_suite.py`)はできたが、外部のコードの実行が自動モードの判定で止められたので未実行(2026-10-31 にユーザーの許可は得たが、自動モードが再び止めた。ユーザーが手で走らせるか、権限の規則を足す)。`TINYMQ_RUN_PAHO_TESTING=1 uv run pytest broker_conformance -s` で動かす
   - [x] `$SYS` トピック(`setSysInterval()`、mosquitto に合わせた `$SYS/broker/...`、既定は出さない)
   - [x] 書き込みが詰まったときの扱い: lwIP の受け口は `writable()`(送信バッファの空き)を見る。`TinyMQTcpListener` は `Client::write()` が待つ前提のまま(Arduino の `Print::availableForWrite()` は上書きしていないクライアントで 0 を返すので使えない)
 - [ ] Phase 4: MQTT-SN
@@ -52,7 +52,7 @@ SPEC §7 の順に進める。
   - [x] ESP32(D0WDQ6、1-2)での計測(2026-10-31、SPEC §5.2)
   - [x] 接続数ごとの RAM の計測(ESP32-S3 / P4、SPEC §5.2。2026-10-31)
   - [ ] TinyWG との組み合わせ(PC 側に TCP を通せる WireGuard のピアが要る)
-  - [ ] ESP32(1-2)への書き込みが 2026-10-31 の夕方に失敗(`Unable to verify flash chip connection`)。ボード側の問題か未確認
+  - [x] ESP32(1-2)への書き込みが 2026-10-31 の夕方に失敗(`Unable to verify flash chip connection`)。esptool の `erase-flash` で消したら書き込めるようになり、計測も通った
 - [ ] Phase 6: MQTT 5.0
   - [x] プロパティのコーデック
   - [x] ブローカー(セッション / メッセージの有効期限、Will Delay、購読識別子と購読オプション、共有購読、受信側のトピックエイリアス、Receive Maximum、Maximum Packet Size、理由コード)
@@ -69,7 +69,8 @@ SPEC §7 の順に進める。
 ## ドキュメント
 
 - [x] README、初心者ガイド、上級者ガイド、API リファレンス(日英)、サンプル 6 本(日英の README)、`keywords.txt`
-- [ ] サンプルの実機での確認(今はビルドのみ。`Esp32Client` / `Esp32Broker` などは相互接続試験と同じ使い方)
+- [x] サンプルの実機での確認(`tests/example_*`、設定は `.env`。ESP32-S3 で Esp32Broker / Esp32Client / Esp32Persist / Esp32Bridge、CH32V307 で Ch32SnSensor。2026-10-31)。PicoWBroker はボードがないので未確認
+  - 見つけたこと: Esp32Client と Ch32SnSensor は再接続のあと購読し直していなかった(直した)。ESP32-S3(d0cf1359101c)は書き込み直後にスケッチが動いていないことがあり、試験の最初に RTS でリセットする
 - [x] `tests/README` の英語版
 
 ## 未決定(TBD)
