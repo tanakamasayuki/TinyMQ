@@ -24,6 +24,14 @@ profiles:
     libraries:
       - dir: ../../
 
+  esp32p4:
+    fqbn: esp32:esp32:esp32p4
+    platforms:
+      - platform: esp32:esp32 (3.3.12)
+        platform_index_url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+    libraries:
+      - dir: ../../
+
   picow:
     fqbn: rp2040:rp2040:rpipicow
     platforms:
