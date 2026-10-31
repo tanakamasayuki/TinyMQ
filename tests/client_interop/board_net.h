@@ -1,10 +1,18 @@
 // Network for the interop sketches: Ethernet on ESP32-P4 (the PHY from the
-// board variant, address by DHCP), Wi-Fi on the other ESP32 and Pico W (SSID
-// and password from tests/.env through build_config.toml), nothing on the
-// host core, whose sockets use the PC's network.
+// board variant) and CH32V (the Network library, with the sketches' WiFi*
+// names for its classes), address by DHCP; Wi-Fi on the other ESP32 and
+// Pico W (SSID and password from tests/.env through build_config.toml);
+// nothing on the host core, whose sockets use the PC's network.
 #pragma once
 
+#if defined(ARDUINO_ARCH_CH32RV)
+#include <Network.h>
+using WiFiClient = NetworkClient;
+using WiFiServer = NetworkServer;
+using WiFiUDP = NetworkUDP;
+#else
 #include <WiFi.h>
+#endif
 #if defined(CONFIG_IDF_TARGET_ESP32P4)
 #include <ETH.h>
 #endif
@@ -14,7 +22,7 @@
 #define WIFI_PASSWORD ""
 #endif
 
-#if defined(CONFIG_IDF_TARGET_ESP32P4)
+#if defined(CONFIG_IDF_TARGET_ESP32P4) || defined(ARDUINO_ARCH_CH32RV)
 #define BOARD_NET_ETH 1
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_RP2040)
 #define BOARD_NET_WIFI 1

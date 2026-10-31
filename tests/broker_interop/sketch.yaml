@@ -39,5 +39,10 @@ profiles:
         platform_index_url: https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
     libraries:
       - dir: ../../
+  ch32v307big:
+    # the unreleased core with Flash / RAM 192K / 128K: tools/setup_ch32_dev_core.sh
+    fqbn: ch32-riscv-ug:ch32rv:CH32V307:pnum=ANY,ramsplit=192k_128k
+    libraries:
+      - dir: ../../
 
 default_profile: host
