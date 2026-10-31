@@ -12,7 +12,9 @@
 // On CH32V, include <Network.h> before this (it brings lwIP into the build).
 //
 // lwIP's callbacks only queue what arrives; the broker runs from update()
-// in loop(), under the lwIP lock where the core has one.
+// in loop(). The listener's own lwIP calls are made under the lwIP lock
+// where the core has one, or in lwIP's thread where it does not (ESP32-P4);
+// the broker itself never runs there.
 #pragma once
 
 // Not in arduino-pico's FreeRTOS mode, where lwIP runs in its own task.

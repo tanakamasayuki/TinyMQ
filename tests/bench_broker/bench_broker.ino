@@ -11,7 +11,7 @@
 WiFiServer server;
 TinyMQTcpListener<WiFiServer> listener(server);
 TinyMQBroker broker;
-#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_WIFI)
+#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_REAL)
 TinyMQLwipListener *lwipListener;
 #endif
 
@@ -39,7 +39,7 @@ void loop()
                 server.begin(port);
                 Serial.print("LISTENING ");
                 Serial.print(port);
-#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_WIFI)
+#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_REAL)
                 lwipListener = new TinyMQLwipListener(port + 1);
                 if (lwipListener->begin()) {
                     broker.addListener(*lwipListener);

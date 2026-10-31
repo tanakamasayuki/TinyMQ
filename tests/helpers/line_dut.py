@@ -51,6 +51,9 @@ class LineDut:
         """Waits for READY <ip> (after joining Wi-Fi on a board) and returns the ip."""
         m = self.expect(r"^(READY|NET_ERROR) ?(.*)$", timeout)
         assert m.group(1) == "READY", f"the board has no network: {m.group(2)}"
+        # Ends any stray byte the UART picked up at reset (seen on the
+        # ESP32-P4's CH340), so it does not prefix the first command.
+        self.send("")
         return m.group(2).strip()
 
     def expect_none(self, pattern, wait=1.0):

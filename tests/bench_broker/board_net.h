@@ -19,6 +19,9 @@
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_RP2040)
 #define BOARD_NET_WIFI 1
 #endif
+#if defined(BOARD_NET_ETH) || defined(BOARD_NET_WIFI)
+#define BOARD_NET_REAL 1  // a board's own network stack, not the host core's sockets
+#endif
 
 // Joins the network; prints NET_ERROR and returns false if it cannot.
 static bool networkUp()
@@ -73,7 +76,7 @@ static IPAddress networkIP()
 // print "READY <ip>" (the test waits for it).
 static bool networkReady()
 {
-#if defined(BOARD_NET_WIFI) || defined(BOARD_NET_ETH)
+#ifdef BOARD_NET_REAL
     delay(5000);
 #else
     delay(2000);

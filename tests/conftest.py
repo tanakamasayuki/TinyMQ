@@ -1,4 +1,5 @@
-"""Locks for the bench partner of the board under test.
+"""Locks for the bench partner of the board under test, and resetting
+helpers.target between tests.
 
 On the shared bench some boards are wired in pairs (IR, GPIO, USB), and the
 partner's firmware may drive the shared lines. The bench rule is to hold the
@@ -15,6 +16,16 @@ import os
 
 import pytest
 from pytest_embedded_arduino_cli.device_lock import DeviceLockError, DeviceLockInfo, DeviceLockSet, default_lock_dir
+
+from helpers import target
+
+
+@pytest.fixture(autouse=True)
+def _reset_target_host():
+    # A board test points target.HOST at the board; if it fails before
+    # setting it back, the next module's peers would connect to the board.
+    yield
+    target.HOST = "127.0.0.1"
 
 
 @pytest.fixture(scope="module", autouse=True)

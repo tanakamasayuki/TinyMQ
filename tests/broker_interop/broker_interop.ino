@@ -19,7 +19,7 @@ WiFiServer server;
 TinyMQTcpListener<WiFiServer> listener(server);
 WiFiUDP udp;
 TinyMQSnListener sn(udp);
-#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_WIFI)
+#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_REAL)
 // the same broker on lwIP's raw API too (board only; the host core has no lwIP)
 TinyMQLwipListener lwipListener(1885);
 #endif
@@ -116,7 +116,7 @@ static void command(char *line)
             udp.begin(snPort);
         Serial.print("LISTENING ");
         Serial.print(port);
-#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_WIFI)
+#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_REAL)
         if (lwipListener.begin()) {
             broker.addListener(lwipListener);
             Serial.print(" lwip=1885");
