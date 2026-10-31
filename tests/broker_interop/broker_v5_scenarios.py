@@ -371,6 +371,75 @@ def scenario_v5_server_disconnects(d, port):
     r.expect_disconnect(0x95)
 
 
+def scenario_v5_enhanced_auth(d, port):
+    def method(m, data=None):
+        p = mp.prop_str(0x15, m)
+        return p + (mp.prop_str(0x16, data) if data is not None else b"")
+
+    d.setting("XAUTH 1")
+    try:
+        # one step: CONNACK carries the method and the broker's data
+        r = raw(port)
+        _, props = r.connect("xa1", props=method("TEST-TOKEN", "token"))
+        assert mp.prop(props, 0x15) == b"TEST-TOKEN" and mp.prop(props, 0x16) == b"ok", props
+        r.send(mp.disconnect5())
+        r = raw(port)
+        r.connect("xa2", expect_reason=0x87, props=method("TEST-TOKEN", "wrong"))
+        assert r.closed_by_peer()
+        r = raw(port)
+        r.connect("xa3", expect_reason=0x8C, props=method("OTHER"))
+        assert r.closed_by_peer()
+        # a challenge: CONNECT -> AUTH 0x18 -> AUTH 0x18 -> CONNACK
+        r = raw(port)
+        r.send(mp.connect5("xa4", props=method("TEST-CHALLENGE", "hello")))
+        assert mp.prop(r.expect_auth(0x18), 0x16) == b"nonce"
+        r.send(mp.auth5(0x18, method("TEST-CHALLENGE", "nonce-ok")))
+        first, body = r.recv_packet()
+        assert first == 0x20 and body[1] == 0, (first, body)
+        props, _ = mp.parse_props(body, 2)
+        assert mp.prop(props, 0x16) == b"welcome", props
+        # the connection works, and re-authenticates (0x19) without a break
+        assert r.subscribe(1, [("xa/t", 0)]) == [0]
+        r.send(mp.auth5(0x19, method("TEST-CHALLENGE", "hello")))
+        assert mp.prop(r.expect_auth(0x18), 0x16) == b"nonce"
+        r.send(mp.auth5(0x18, method("TEST-CHALLENGE", "nonce-ok")))
+        assert mp.prop(r.expect_auth(0x00), 0x16) == b"welcome"
+        r.send(mp.publish5("xa/t", "after"))
+        assert recv_pub(r)["payload"] == b"after"
+        # re-authentication that fails ends the connection
+        r.send(mp.auth5(0x19, method("TEST-CHALLENGE", "bye")))
+        r.expect_disconnect(0x87)
+        # a wrong answer, another method in AUTH, anything but AUTH meanwhile
+        r = raw(port)
+        r.send(mp.connect5("xa5", props=method("TEST-CHALLENGE", "hello")))
+        r.expect_auth(0x18)
+        r.send(mp.auth5(0x18, method("TEST-CHALLENGE", "nope")))
+        first, body = r.recv_packet()
+        assert first == 0x20 and body[1] == 0x87, (first, body)
+        assert r.closed_by_peer()
+        r = raw(port)
+        r.send(mp.connect5("xa6", props=method("TEST-CHALLENGE", "hello")))
+        r.expect_auth(0x18)
+        r.send(mp.auth5(0x18, method("TEST-TOKEN", "token")))
+        first, body = r.recv_packet()
+        assert first == 0x20 and body[1] == 0x82, (first, body)
+        assert r.closed_by_peer()
+        r = raw(port)
+        r.send(mp.connect5("xa7", props=method("TEST-CHALLENGE", "hello")))
+        r.expect_auth(0x18)
+        r.send(mp.publish5("xa/t", "early"))
+        first, body = r.recv_packet()
+        assert first == 0x20 and body[1] == 0x82, (first, body)
+        assert r.closed_by_peer()
+        # AUTH from a client that connected without a method
+        r = raw(port)
+        r.connect("xa8")
+        r.send(mp.auth5(0x19, method("TEST-TOKEN", "token")))
+        r.expect_disconnect(0x82)
+    finally:
+        d.setting("XAUTH 0")
+
+
 SCENARIOS = (
     ("v5_connack", scenario_v5_connack),
     ("v5_properties", scenario_v5_properties),
@@ -384,4 +453,5 @@ SCENARIOS = (
     ("v5_shared", scenario_v5_shared),
     ("v5_flow_control", scenario_v5_flow_control),
     ("v5_server_disconnects", scenario_v5_server_disconnects),
+    ("v5_enhanced_auth", scenario_v5_enhanced_auth),
 )

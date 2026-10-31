@@ -80,6 +80,7 @@ Pass a function pointer and a `void *context`.
 | `onSubscribe(void (*)(uint16_t packetId, bool unsubscribe, const uint8_t *reasons, size_t count, void *))` | SUBACK / UNSUBACK |
 | `onPublished(void (*)(uint16_t packetId, uint8_t reason, void *))` | a QoS 1 / 2 send finished (PUBACK / PUBCOMP) |
 | `onDisconnect(void (*)(uint8_t reason, void *))` | the connection ended (`kSuccess` for `disconnect()`) |
+| `onAuth(bool (*)(uint8_t reason, Bytes method, Bytes data, uint8_t *reply, size_t cap, size_t &replyLen, void *))` | 5.0 enhanced authentication: `kContinueAuthentication` for an AUTH to answer (write the reply), `kSuccess` with the data of the final CONNACK or AUTH. `false` ends the connection. The method goes in CONNECT with `setConnectProperties()` |
 
 ### Operations
 
@@ -88,6 +89,7 @@ Pass a function pointer and a `void *context`.
 | `bool connect()` / `connect(const char *clientId)` | Connects and waits for CONNACK. true if accepted |
 | `void connectAsync()` | Starts connecting and returns without waiting for CONNACK (`update()` handles the rest and keeps reconnecting) |
 | `void disconnect(uint8_t reason = kSuccess)` | Disconnects. With 5.0, `kDisconnectWithWill` makes the broker publish the will |
+| `bool reauthenticate(Bytes data = Bytes())` | 5.0: re-authentication (AUTH 0x19) with the Authentication Method of CONNECT. false if not connected with one |
 | `bool connected()` | whether connected |
 | `void update()` | Receiving, keepalive, reconnecting. Call from `loop()` |
 | `int publish(topic, const char *payload, qos = 0, retain = false)` | Sends. Packet ID for QoS 1 / 2, 0 for QoS 0, −1 on failure |
@@ -130,11 +132,14 @@ An MQTT broker. Register listeners and call `update()` from `loop()`.
 | `setSysInterval(uint32_t seconds)` | interval for publishing the state, retained, under `$SYS/broker/...`. 0 (default) publishes nothing and deletes what was published |
 | `setSessionExpiry(uint32_t seconds)` | upper limit on how long a session outlives its connection. 0 (default) is no limit (when the session table is full, the oldest are dropped) |
 | `onAuthenticate(uint8_t (*)(const tinymq::ConnectInfo &, void *))` | Authentication. `kSuccess` accepts; any other reason code refuses |
+| `onEnhancedAuth(uint8_t (*)(tinymq::AuthStep &, void *))` | 5.0 enhanced authentication and re-authentication. Returns `kSuccess`, `kContinueAuthentication` (the reply in `AuthStep::reply` goes out in AUTH) or a reason code to refuse. Without it, an Authentication Method is refused with 0x8C |
 | `onAuthorize(bool (*)(Bytes clientId, Bytes username, Bytes topic, bool subscribe, void *))` | whether publish / subscribe is allowed per topic |
 | `onClient(void (*)(Bytes clientId, bool connected, void *))` | clients connecting and disconnecting |
 | `onRetainedChange(void (*)(Bytes topic, bool deleted, void *))` | a retained message was stored / deleted (a trigger for saving) |
 
 `ConnectInfo` holds `clientId`, `hasUsername` / `username`, `hasPassword` / `password`, `version` and `props` (5.0).
+
+`AuthStep` holds `conn` (connection number), `clientId`, `method`, `data` (from the client), `reauth`, `step` (from 0 in each exchange), and `reply` / `replyCap` / `replyLen` for the answer (up to `TINYMQ_AUTH_DATA` bytes).
 
 ### The sketch's own client
 
@@ -189,6 +194,7 @@ An MQTT-SN 1.2 gateway built into the broker. The sketch calls the UDP's `begin(
 | `setAdvertise(uint16_t seconds, IPAddress broadcast, uint16_t port)` | interval for broadcasting ADVERTISE. 0 stops it |
 | `setRetry(uint32_t ms, uint8_t count)` | Interval (Tretry, default 10 s) and count (Nretry, default 3) for resending unacknowledged messages. Past that, the client is treated as disconnected (its will is published) |
 | `setQosMinusOne(bool on)` | whether to accept QoS −1 (PUBLISH without a connection) (default true) |
+| `setSourceFilter(bool (*)(const tinymq::Endpoint &from, void *), void *context = nullptr)` | drops datagrams from senders the callback refuses. `Endpoint` holds `ip[4]`, `port` and, behind a forwarder, `node` / `nodeLen` (Wireless Node Id) |
 | `size_t clients()` | number of MQTT-SN clients |
 
 ## TinyMQClientSn

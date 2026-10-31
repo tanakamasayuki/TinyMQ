@@ -80,6 +80,7 @@ TinyMQClient mqtt(net);
 | `onSubscribe(void (*)(uint16_t packetId, bool unsubscribe, const uint8_t *reasons, size_t count, void *))` | SUBACK / UNSUBACK |
 | `onPublished(void (*)(uint16_t packetId, uint8_t reason, void *))` | QoS 1 / 2 の送信が終わった(PUBACK / PUBCOMP) |
 | `onDisconnect(void (*)(uint8_t reason, void *))` | 接続が終わった(`disconnect()` なら `kSuccess`) |
+| `onAuth(bool (*)(uint8_t reason, Bytes method, Bytes data, uint8_t *reply, size_t cap, size_t &replyLen, void *))` | 5.0 の拡張認証: 答える AUTH なら `kContinueAuthentication`(返事を書く)、最後の CONNACK / AUTH のデータなら `kSuccess`。`false` で接続を切る。方式は `setConnectProperties()` で CONNECT に入れる |
 
 ### 操作
 
@@ -88,6 +89,7 @@ TinyMQClient mqtt(net);
 | `bool connect()` / `connect(const char *clientId)` | 接続して CONNACK を待つ。受け入れられたら true |
 | `void connectAsync()` | 接続を始めて、CONNACK を待たずに戻る(以後 `update()` が処理し、再接続も続ける) |
 | `void disconnect(uint8_t reason = kSuccess)` | 切断。5.0 で `kDisconnectWithWill` なら will を出させる |
+| `bool reauthenticate(Bytes data = Bytes())` | 5.0: CONNECT の Authentication Method で再認証する(AUTH 0x19)。それで接続していなければ false |
 | `bool connected()` | つながっているか |
 | `void update()` | 受信、keepalive、再接続。`loop()` から呼ぶ |
 | `int publish(topic, const char *payload, qos = 0, retain = false)` | 送信。QoS 1 / 2 はパケット ID、QoS 0 は 0、失敗は −1 |
@@ -130,11 +132,14 @@ MQTT ブローカー。受け口(listener)を登録し、`loop()` から `update
 | `setSysInterval(uint32_t seconds)` | `$SYS/broker/...` に状態を retain で出す間隔。0(既定)で出さず、出したものを消す |
 | `setSessionExpiry(uint32_t seconds)` | セッションが接続より長く残る上限。0(既定)は上限なし(セッション表が埋まったら古いものから捨てる) |
 | `onAuthenticate(uint8_t (*)(const tinymq::ConnectInfo &, void *))` | 認証。`kSuccess` で受け入れ、ほかの理由コードで拒否 |
+| `onEnhancedAuth(uint8_t (*)(tinymq::AuthStep &, void *))` | 5.0 の拡張認証と再認証。`kSuccess`、`kContinueAuthentication`(`AuthStep::reply` の返事を AUTH で送る)、拒否の理由コードを返す。登録しなければ Authentication Method は 0x8C で断る |
 | `onAuthorize(bool (*)(Bytes clientId, Bytes username, Bytes topic, bool subscribe, void *))` | トピックごとの publish / subscribe の可否 |
 | `onClient(void (*)(Bytes clientId, bool connected, void *))` | クライアントの接続と切断 |
 | `onRetainedChange(void (*)(Bytes topic, bool deleted, void *))` | retain が保存 / 削除された(保存のきっかけに) |
 
 `ConnectInfo` は `clientId`、`hasUsername` / `username`、`hasPassword` / `password`、`version`、`props`(5.0)を持ちます。
+
+`AuthStep` は `conn`(接続の番号)、`clientId`、`method`、`data`(クライアントから)、`reauth`、`step`(やり取りごとに 0 から)と、返事の `reply` / `replyCap` / `replyLen`(`TINYMQ_AUTH_DATA` バイトまで)を持ちます。
 
 ### スケッチ自身のクライアント
 
@@ -189,6 +194,7 @@ lwIP のコールバックは受信を溜めるだけで、ブローカーは `u
 | `setAdvertise(uint16_t seconds, IPAddress broadcast, uint16_t port)` | ADVERTISE をブロードキャストする間隔。0 で止める |
 | `setRetry(uint32_t ms, uint8_t count)` | 確認のないメッセージを送り直す間隔(Tretry、既定 10 秒)と回数(Nretry、既定 3)。超えたらクライアントは切断扱い(will が出る) |
 | `setQosMinusOne(bool on)` | QoS −1(接続なしの PUBLISH)を受け付けるか(既定 true) |
+| `setSourceFilter(bool (*)(const tinymq::Endpoint &from, void *), void *context = nullptr)` | コールバックが断った送信元のデータグラムを捨てる。`Endpoint` は `ip[4]`、`port`、フォワーダーの後ろなら `node` / `nodeLen`(Wireless Node Id)を持つ |
 | `size_t clients()` | MQTT-SN のクライアント数 |
 
 ## TinyMQClientSn

@@ -1,6 +1,10 @@
 # Changelog / 変更履歴
 
 ## Unreleased
+- (EN) MQTT-SN gateway: Forwarder Encapsulation (each Wireless Node Id behind a forwarder is a client of its own) and a source filter callback (setSourceFilter()).
+- (JA) MQTT-SN ゲートウェイ: Forwarder Encapsulation(フォワーダーの後ろのノード ID ごとに別のクライアント)と送信元のフィルター(setSourceFilter())。
+- (EN) MQTT 5.0 enhanced authentication (AUTH) with re-authentication: TinyMQBroker::onEnhancedAuth() and TinyMQClient::onAuth() / reauthenticate(), one callback per step.
+- (JA) MQTT 5.0 の拡張認証(AUTH)と再認証: TinyMQBroker::onEnhancedAuth() と TinyMQClient::onAuth() / reauthenticate()。1 往復ごとのコールバック。
 - (EN) TINYMQ_PRESET_SMALL: smaller defaults for the broker and the MQTT-SN gateway on boards with little RAM beside the network stack.
 - (JA) TINYMQ_PRESET_SMALL: ネットワークのスタックの横で RAM が少ないボード向けに、ブローカーと MQTT-SN ゲートウェイの既定値を小さくする。
 - (EN) TinyMQLwipListener works on cores built without lwIP's core lock (ESP32-P4): its lwIP calls run in lwIP's thread, and the broker runs outside the lock everywhere.

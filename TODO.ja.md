@@ -1,6 +1,6 @@
 # TODO / 引き継ぎメモ
 
-最終更新: 2026-10-28。仕様は [SPEC.ja.md](SPEC.ja.md) にあります。
+最終更新: 2026-10-31。仕様は [SPEC.ja.md](SPEC.ja.md) にあります。
 
 ## 現状
 
@@ -27,33 +27,35 @@ SPEC §7 の順に進める。
 - [x] Phase 3: `TinyMQBroker`(3.1.1 / 3.1)+ `TinyMQTcpListener`、ローカルクライアント、認証・認可のコールバック、paho-mqtt と生ソケットでの試験
   - [ ] Eclipse paho.mqtt.testing の相互接続試験スイートを当てる。仕組み(`broker_conformance/`、`tools/fetch_paho_testing.sh`、`helpers/run_paho_suite.py`)はできたが、外部のコードの実行が自動モードで止められたので未実行。`TINYMQ_RUN_PAHO_TESTING=1 uv run pytest broker_conformance -s` で動かす
   - [x] `$SYS` トピック(`setSysInterval()`、mosquitto に合わせた `$SYS/broker/...`、既定は出さない)
-  - [ ] 書き込みが詰まったときの扱い(今は Arduino の `Client::write()` がブロックする前提。lwIP 版の受け口で `writable()` を使う)
+  - [x] 書き込みが詰まったときの扱い: lwIP の受け口は `writable()`(送信バッファの空き)を見る。`TinyMQTcpListener` は `Client::write()` が待つ前提のまま(Arduino の `Print::availableForWrite()` は上書きしていないクライアントで 0 を返すので使えない)
 - [ ] Phase 4: MQTT-SN
   - [x] コーデック(`tinymq::sn`)と単体テスト
   - [x] ゲートウェイ(`tinymq::SnGateway`、`TinyMQSnListener`)。MQTT-SN のクライアント 1 つにブローカーの接続を 1 本割り当て、パケットを相互に変換する方式。Python の MQTT-SN ピアで試験
   - [x] `TinyMQClientSn`(段階を選べるクライアント、手順はブロッキング)。自前のゲートウェイと偽ゲートウェイで試験。CH32V307 で段階ごとのフットプリントを計測(SPEC §4.5)
   - [ ] ほかの MQTT-SN 実装(Eclipse Paho MQTT-SN Gateway など)との相互接続
-  - [ ] Forwarder Encapsulation、送信元アドレスの許可リスト
+  - [x] Forwarder Encapsulation(ノード ID ごとに別のクライアント)、送信元のフィルター(`setSourceFilter()`)。Python のピアで試験(2026-10-31)
 - [ ] Phase 5: 実機
   - [x] ESP32 / ESP32-S3: 単体テストと 3 つの相互接続試験(Wi-Fi)
   - [ ] ESP32 の `sn_client_interop` の `resend` が 1 回だけ失敗した(偽ゲートウェイが最初に REGISTER ではなく PUBLISH を受けた)。再実行では通り、ESP32-S3 でも通る。原因は未特定。再発したら受信内容がアサーションに出る
   - [x] ESP32 / ESP32-S3 で 5.0 を含む 3 つの相互接続試験が通過(2026-10-28)
+  - [x] ESP32-S3 で拡張認証(TCP と lwIP の受け口)と Forwarder Encapsulation を含む `broker_interop`(75)、`client_interop` が通過(2026-10-31)
   - [ ] ESP32-S3 が試験中に 1 回だけ電源投入リセットでダウンロードモードに入った(`rst:0x1 (POWERON), boot:0x23`)。再実行では起きていない。USB の電源か、ほかのスイートとの取り合いかは未確認
   - [ ] CH32V307(Ethernet。小さい設定のブローカーと lwIP の受け口でビルドは通る: Flash 59 KB / RAM 47 KB、うち lwIP 約 37 KB、Network ライブラリ)。ブローカーの軽い構成と MQTT-SN クライアント。ほかの機材と同じく pytest の機器ロックで使う
     - CH32V の lwIP(2026-10-31、[core] に確認): NO_SYS=1 で、lwIP は `ch32rv_net_task()` の中だけで動く(`loop()` の後、`delay()` の中、Network の待つ処理)。割り込みは受信した frame を積むだけ。なので `TinyMQLwipListener` がロックなしで `loop()` から raw API を呼ぶのは正しい。スケッチ自身の割り込みからは呼ばないこと
     - 2026-10-31: 未公開のコア(作業ツリー 00a3210d 以降、Flash / RAM を 192K / 128K にする `ramsplit`、そのときの大きい lwIP の設定、ループバック)と `TINYMQ_PRESET_SMALL` で、3-2 の Ethernet で `client_interop`(20)、`sn_client_interop`(8)、`broker_interop`(43)が通過。プロファイルは `ch32v307big`(`tests/tools/setup_ch32_dev_core.sh`)。コアが公開されたら、版を固定したプロファイルに置き換える
     - 試験のプラグインにプロファイルごとの define がないので、プリセットはスケッチブックの `platform.local.txt` で渡している
+    - 2026-10-31(拡張認証と Forwarder Encapsulation を入れたあと): `broker_interop`(45)が 3 回続けて通過。その前に 2 回、`v5_expiry` がタイムアウトして、残ったセッションで後のシナリオ(persistence、sys、sn_qos_minus_one、clean_state)も落ちた。直前のコミットでは通り、変更なしの再実行でも通ったので原因は未特定。失敗したシナリオはトレースバックを出すようにしたので、再発したらどの待ちかがわかる
     - スケッチは `ETH.begin()` を呼ぶこと(呼ばないと Network.a の `sys_now` が `millis` を見つけられずリンクに失敗する)。既定の設定では RAM が溢れるので、4 接続・プール 4 KB で Flash 60 KB / RAM 51 KB
   - [ ] Pico W(つながっていない)
   - [x] ESP32-P4(2-3、有線 LAN): 単体テスト 6 本と 5 つの相互接続試験(`broker_interop` 72 シナリオ、うち lwIP の受け口 29)、ブリッジ、計測(SPEC §5.2)が通過(2026-10-31)。途中で直したこと: P4 のコアは lwIP のコアロックなしなので、`TinyMQLwipListener` の lwIP の呼び出しを lwIP のスレッドで行うようにした。CH340 が起動時に拾うゴミの 1 バイトで最初のコマンドが壊れるので、試験は READY のあとに空行を送る
   - [x] ブローカーの遅延と速さ(`bench_broker`、ESP32-S3。SPEC §5.2)。途中で `TinyMQLwipListener` の 3 つの問題(遅延 ACK、送信キューのセグメント数、セグメントのまとめ)を直した
-  - [ ] ESP32(D0WDQ6)での計測。ほかのスイートが使っていて書き込みに失敗した。やり直す
+  - [x] ESP32(D0WDQ6、1-2)での計測(2026-10-31、SPEC §5.2)
   - [ ] 接続数ごとの RAM の計測、TinyWG との組み合わせ
 - [ ] Phase 6: MQTT 5.0
   - [x] プロパティのコーデック
   - [x] ブローカー(セッション / メッセージの有効期限、Will Delay、購読識別子と購読オプション、共有購読、受信側のトピックエイリアス、Receive Maximum、Maximum Packet Size、理由コード)
   - [x] クライアント(CONNECT / CONNACK のプロパティ、プロパティ付きの publish、購読オプションと識別子、理由コード付きの DISCONNECT)。mosquitto と偽ブローカーで試験
-  - [ ] 拡張認証(AUTH)。今は Authentication Method を CONNACK 0x8C で断る
+  - [x] 拡張認証(AUTH)と再認証(ブローカーの `onEnhancedAuth()`、クライアントの `onAuth()` / `reauthenticate()`)。ブローカーは生のソケット、クライアントは偽ブローカーで試験(2026-10-31)
 - [x] Phase 7: ブリッジ(`TinyMQBridge`)。ブローカーのタップ(自分の入れたものを受けない内部購読者)と `TinyMQClient` で、mosquitto の bridge 相当(out / in / both、プレフィックス、QoS)。再接続時に上流の購読とローカルの retain をやり直す
   - [x] 上流が落ちている間の QoS 1 / 2 を預かり、戻ったら順に送る(`TINYMQ_BRIDGE_QUEUE_BYTES`)
 - [ ] Phase 8: lwIP の受け口、永続化のフック
@@ -72,8 +74,7 @@ SPEC §7 の順に進める。
 
 - 複数タスクから呼ぶ場合の排他(ESP32 でブローカーを別タスクに置く形)
 - CH32V でブローカーを動かす軽量構成をどこまで用意するか
-- 5.0 の拡張認証(AUTH)、MQTT 3.1(`MQIsdp`)の受け付け、`$SYS` の内容
-- MQTT-SN の Forwarder Encapsulation
+- MQTT 3.1(`MQIsdp`)の受け付け、`$SYS` の内容
 - ブリッジで複数の上流を扱うか
 
 ## 環境メモ

@@ -297,6 +297,47 @@ def scenario_sn_connect_twice(d, port, sn_port):
         s.close()
 
 
+def scenario_sn_forwarder(d, port, sn_port):
+    """Clients behind a forwarder (Forwarder Encapsulation): each node is a client of its own, and replies go back wrapped for it."""
+    b = PahoPeer(port, client_id="b")
+    n1 = snp.SnPeer(sn_port, node=b"\x01\x02")
+    n2 = snp.SnPeer(sn_port, node=b"\x03", sock=n1.sock)
+    direct = snp.SnPeer(sn_port)
+    try:
+        b.subscribe("fw/#", 1)
+        assert n1.connect("fw-node1") == 0
+        assert n2.connect("fw-node2") == 0
+        assert d.stats()["sn"] == 2
+        tid = n1.register("fw/one")
+        assert n1.publish(tid, "from-1", qos=1) == 0
+        m = b.expect()
+        assert (m.topic, m.payload) == ("fw/one", b"from-1")
+        qos, tid2, rc = n2.subscribe("fw/down", 1)
+        assert rc == 0
+        b.publish("fw/down", "to-2", qos=1)
+        msg = n2.receive()
+        assert msg["data"] == b"to-2", msg
+        n1.disconnect()
+        n2.disconnect()
+        # a client without a forwarder alongside
+        assert direct.connect("fw-direct") == 0
+        assert d.stats()["sn"] == 1
+        direct.disconnect()
+        # the source filter sees the node id
+        d.setting("SNFILTER 1")
+        bad = snp.SnPeer(sn_port, node=b"\xba\x01", sock=n1.sock)
+        bad.send(snp.CONNECT, bytes([snp.flags(clean=True), 1, 0, 60]) + b"fw-bad")
+        bad.expect_nothing(1.0)
+        assert n2.connect("fw-node2") == 0
+        n2.disconnect()
+    finally:
+        d.setting("SNFILTER 0")
+        b.close()
+        n2.close()
+        n1.close()
+        direct.close()
+
+
 SCENARIOS = (
     ("sn_pubsub", scenario_sn_pubsub),
     ("sn_subscribe", scenario_sn_subscribe),
@@ -309,6 +350,7 @@ SCENARIOS = (
     ("sn_qos2_in", scenario_sn_qos2_in),
     ("sn_persistent", scenario_sn_persistent),
     ("sn_connect_twice", scenario_sn_connect_twice),
+    ("sn_forwarder", scenario_sn_forwarder),
 )
 
 

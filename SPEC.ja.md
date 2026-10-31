@@ -2,7 +2,7 @@
 
 [English](SPEC.md)
 
-> ステータス: Phase 0〜4、6〜8 を実装済み(2026-10-28)。ブリッジ、lwIP の受け口、永続化も含む。MQTT 3.1.1 / 3.1 / 5.0 のクライアントとブローカー(拡張認証を除く)、MQTT-SN 1.2 のゲートウェイとクライアント。ESP32 / ESP32-S3 の実機で試験済み(Wi-Fi)。まだ決めていない値は `TBD` と表記する。
+> ステータス: Phase 0〜4、6〜8 を実装済み(2026-10-28)。ブリッジ、lwIP の受け口、永続化も含む。MQTT 3.1.1 / 3.1 / 5.0 のクライアントとブローカー(拡張認証を含む)、MQTT-SN 1.2 のゲートウェイとクライアント。ESP32 / ESP32-S3 の実機で試験済み(Wi-Fi)。まだ決めていない値は `TBD` と表記する。
 
 ## 1. 目的と範囲
 
@@ -100,7 +100,7 @@ App(スケッチ)
 | メッセージ有効期限 | — | ○ | |
 | Maximum Packet Size、Maximum QoS、Retain Available 等の通知 | — | ○ | 設定で落とした機能は CONNACK で正しく通知する |
 | サーバーからの DISCONNECT(理由コード付き) | — | ○ | |
-| 拡張認証(AUTH) | — | `TBD` | コールバックの形だけ用意するか検討 |
+| 拡張認証(AUTH) | yes | yes | 1 往復ごとのコールバック(`onEnhancedAuth()` / `onAuth()`)。再認証も |
 | `$SYS` トピック | ○ | ○ | `[軽量化]`。内容は mosquitto に倣う `TBD` |
 | MQTT 3.1(プロトコル名 `MQIsdp`) | ○ | — | 古いクライアント向け。安価なので受け付ける `TBD` |
 
@@ -138,11 +138,11 @@ QoS 2 の重さは向きで違う。
 | WILLTOPICUPD / WILLMSGUPD | |
 | ADVERTISE / SEARCHGW / GWINFO | ブロードキャストの可否はコア依存。`[軽量化]` |
 | 再送(Tretry / Nretry) | |
-| Forwarder Encapsulation | `TBD` |
+| Forwarder Encapsulation | フォワーダーの後ろの Wireless Node Id ごとに別のクライアント。返事はそのノード宛てに包んで返す(ID は `TINYMQ_SN_MAX_NODE_ID`、8 バイトまで) |
 
 セッションの識別はクライアントのアドレスとポートで行う(MQTT-SN 1.2 と同じ)。スリープからの復帰で送信元が変わった場合は Client ID で引き当てる。
 
-**セキュリティ**: MQTT-SN 1.2 には暗号も認証もない。閉域網か、TinyWG のトンネル内で使う前提とし、ドキュメントで明記する。受け口ごとに送信元アドレスの許可リストを設定できる。
+**セキュリティ**: MQTT-SN 1.2 には暗号も認証もない。閉域網か、TinyWG のトンネル内で使う前提とし、ドキュメントで明記する。受け口ごとに、送信元をコールバック(`setSourceFilter()`: アドレス、ポート、ノード ID)で選べる。
 
 ### 4.5 MQTT-SN 1.2 — クライアント(`TinyMQClientSn`)
 
@@ -214,7 +214,16 @@ CH32V307(Ethernet で 1 秒ごとに UDP を送るスケッチとの差、`TINYM
 - QoS 0 の取りこぼしは、購読者のキュー(`TINYMQ_BROKER_MAX_QUEUED`、既定 32)が溢れた分で、`droppedMessages()` に数える。`TinyMQTcpListener` は書き込みで待つので、送り手の TCP が抑えられて取りこぼさないが、全体が遅くなる
 - **遅延 ACK**: Nagle を止めていないクライアント(paho-mqtt など)の QoS 0 は、ブローカー側の遅延 ACK(lwIP で最大 250 ms)を待たされる。`TinyMQLwipListener` は受け取るたびにすぐ ACK を返すので起きない
 - 計測の途中で、`TinyMQLwipListener` の 2 つの問題を直した: 送信キューのセグメント数(`TCP_SND_QUEUELEN`)を見ずに書いて接続が切れていたこと、書き込みのたびに `tcp_output()` を呼んで小さなパケットが別々のセグメントになっていたこと(後者で 1 対 1 は 244 → 2967 msg/s)
-- ESP32(D0WDQ6)は、同じ時間帯にほかのスイートがボードを使っていて書き込みに失敗し、直したあとの値は取れていない
+
+ESP32(D0WDQ6、1-2、同じ Wi-Fi、2026-10-31):
+
+| | `TinyMQLwipListener` | `TinyMQTcpListener<WiFiServer>` |
+|---|---|---|
+| 往復の遅延 QoS 0(中央値 / p95) | 3.48 / 10.3 ms | 243 / 451 ms(遅延 ACK) |
+| 往復の遅延 QoS 1(中央値 / p95) | 4.16 / 13.7 ms | 5.08 / 33.9 ms |
+| 1 対 1 の連続送信 QoS 0(100 バイト) | 3787 msg/s(届いた割合 82.5%) | 1241 msg/s(100%) |
+| 1 対 1 の連続送信 QoS 1 | 175 msg/s | 174 msg/s |
+| 1 対 4 の配送 QoS 0 | 7278 件/s(61%) | 1134 件/s(100%) |
 
 ESP32-P4(2-3、有線 LAN 100 Mbps、2026-10-31):
 

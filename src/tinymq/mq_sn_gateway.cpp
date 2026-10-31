@@ -68,6 +68,20 @@ void SnGateway::input(const Endpoint &from, const uint8_t *data, size_t len, uin
     now_ = now;
     if (!broker_)
         return;
+    if (len >= 3 && data[1] == sn::kEncapsulated) {
+        // Forwarder Encapsulation: length of this header, 0xFE, Ctrl, Wireless
+        // Node Id, then the client's message. Not nested.
+        size_t head = data[0];
+        if (from.nodeLen || head <= 3 || head > len || head - 3 > sizeof(from.node))
+            return;
+        Endpoint node = from;
+        node.nodeLen = (uint8_t)(head - 3);
+        memcpy(node.node, data + 3, node.nodeLen);
+        input(node, data + head, len - head, now);
+        return;
+    }
+    if (filter_ && !filter_(from, filterCtx_))
+        return;
     uint8_t type;
     const uint8_t *body;
     size_t bodyLen;
@@ -263,8 +277,21 @@ void SnGateway::poll(uint32_t now)
 
 void SnGateway::send(const Endpoint &to, size_t n)
 {
-    if (n && out_)
-        out_->sendTo(to, tx_, n);
+    if (!n || !out_)
+        return;
+    if (to.nodeLen) {
+        // back through the forwarder, with the node's id (Ctrl 0: radius not used)
+        size_t head = 3 + to.nodeLen;
+        if (n + head > sizeof(tx_))
+            return;
+        memmove(tx_ + head, tx_, n);
+        tx_[0] = (uint8_t)head;
+        tx_[1] = sn::kEncapsulated;
+        tx_[2] = 0;
+        memcpy(tx_ + 3, to.node, to.nodeLen);
+        n += head;
+    }
+    out_->sendTo(to, tx_, n);
 }
 
 // ---- clients

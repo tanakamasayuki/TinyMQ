@@ -20,6 +20,7 @@ public:
 class TinyMQBroker {
 public:
     typedef tinymq::Broker::AuthHandler AuthHandler;
+    typedef tinymq::Broker::EnhancedAuthHandler EnhancedAuthHandler;
     typedef tinymq::Broker::AclHandler AclHandler;
     typedef tinymq::Broker::MessageHandler MessageHandler;
     typedef tinymq::Broker::ClientHandler ClientHandler;
@@ -37,6 +38,7 @@ public:
     void setSysInterval(uint32_t seconds) { engine_.setSysInterval(seconds); }  // $SYS/broker/... every `seconds` (0: off)
     void onAuthenticate(AuthHandler h, void *context = nullptr) { engine_.onAuthenticate(h, context); }
     void onAuthorize(AclHandler h, void *context = nullptr) { engine_.onAuthorize(h, context); }
+    void onEnhancedAuth(EnhancedAuthHandler h, void *context = nullptr) { engine_.onEnhancedAuth(h, context); }  // 5.0 AUTH
     void onClient(ClientHandler h, void *context = nullptr) { engine_.onClient(h, context); }
 
     // The sketch as a client of its own broker

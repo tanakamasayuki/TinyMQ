@@ -35,6 +35,7 @@ bool ClientEngine::start(Link &link, uint32_t now)
     rxLen_ = 0;
     skip_ = 0;
     pingOutstanding_ = false;
+    reauth_ = false;
     lastReason_ = kSuccess;
     if (connect_.cleanStart)
         clearSession();
@@ -328,6 +329,78 @@ bool ClientEngine::sendAck(PacketType type, uint16_t packetId)
     return send(tx_, n);
 }
 
+bool ClientEngine::authMethod(Bytes &method) const
+{
+    Property p;
+    if (!findProp(extraConnectProps_, kAuthenticationMethod, p))
+        return false;
+    method = p.data;
+    return true;
+}
+
+bool ClientEngine::reauthenticate(Bytes data)
+{
+    Bytes method;
+    if (state_ != State::Connected || connect_.version != kMqtt5 || !authMethod(method))
+        return false;
+    reauth_ = true;
+    return sendAuth(kReAuthenticate, data);
+}
+
+bool ClientEngine::sendAuth(uint8_t reason, Bytes data)
+{
+    Bytes method;
+    authMethod(method);
+    uint8_t buf[TINYMQ_MAX_TOPIC_LEN + TINYMQ_AUTH_DATA + 8];
+    PropWriter w(buf, sizeof(buf));
+    w.string(kAuthenticationMethod, method);
+    if (data.len)
+        w.string(kAuthenticationData, data);
+    if (!w.ok()) {
+        fail(kUnspecifiedError);
+        return false;
+    }
+    Disconnect a;
+    a.reason = reason;
+    a.props = w.result();
+    size_t n = encodeDisconnect(tx_, sizeof(tx_), kMqtt5, PacketType::Auth, a);
+    return send(tx_, n);
+}
+
+void ClientEngine::handleAuth(const FixedHeader &h, const uint8_t *body, size_t len)
+{
+    Disconnect a;
+    uint8_t r = decodeDisconnect(h, body, len, connect_.version, a);
+    if (r == kSuccess)
+        r = checkProps(a.props, kInAuth);
+    Property p;
+    Bytes ours;
+    Bytes method = findProp(a.props, kAuthenticationMethod, p) ? p.data : Bytes();
+    Bytes data = findProp(a.props, kAuthenticationData, p) ? p.data : Bytes();
+    // continue while connecting; continue or success while re-authenticating
+    bool expected = a.reason == kContinueAuthentication ? state_ == State::WaitConnack || reauth_
+                                                         : a.reason == kSuccess && reauth_;
+    if (r == kSuccess && (!authMethod(ours) || !method.equals(ours) || !expected))
+        r = kProtocolError;
+    if (r != kSuccess) {
+        fail(r);
+        return;
+    }
+    uint8_t reply[TINYMQ_AUTH_DATA];
+    size_t n = 0;
+    if (a.reason == kSuccess) {
+        reauth_ = false;
+        if (onAuth_ && !onAuth_(kSuccess, method, data, nullptr, 0, n, onAuthCtx_))
+            fail(kUnspecifiedError);
+        return;
+    }
+    if (!onAuth_ || !onAuth_(kContinueAuthentication, method, data, reply, sizeof(reply), n, onAuthCtx_) || n > sizeof(reply)) {
+        fail(kUnspecifiedError);
+        return;
+    }
+    sendAuth(kContinueAuthentication, Bytes(reply, (uint32_t)n));
+}
+
 void ClientEngine::close(uint8_t reason)
 {
     if (state_ == State::Disconnected)
@@ -427,6 +500,8 @@ void ClientEngine::handlePacket(const FixedHeader &h, const uint8_t *body)
     if (state_ == State::WaitConnack) {
         if (h.type == PacketType::Connack)
             handleConnack(body, len);
+        else if (h.type == PacketType::Auth)
+            handleAuth(h, body, len);
         else
             close(kProtocolError);
         return;
@@ -458,6 +533,9 @@ void ClientEngine::handlePacket(const FixedHeader &h, const uint8_t *body)
             return;
         }
         pingOutstanding_ = false;
+        break;
+    case PacketType::Auth:
+        handleAuth(h, body, len);
         break;
     case PacketType::Disconnect: {
         Disconnect d;
@@ -523,6 +601,16 @@ void ClientEngine::handleConnack(const uint8_t *body, size_t len)
         }
     }
     state_ = State::Connected;
+    Bytes method;
+    if (connect_.version == kMqtt5 && authMethod(method)) {
+        Property p;
+        Bytes data = findProp(c.props, kAuthenticationData, p) ? p.data : Bytes();
+        size_t n = 0;
+        if (onAuth_ && !onAuth_(kSuccess, method, data, nullptr, 0, n, onAuthCtx_)) {
+            fail(kUnspecifiedError);
+            return;
+        }
+    }
     if (!c.sessionPresent) {
         clearSession();  // the server has no session: neither do we
     } else {

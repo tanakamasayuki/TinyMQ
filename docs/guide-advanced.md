@@ -53,6 +53,7 @@ With `TINYMQ_BROKER_POOL_BYTES` set to 0, the pool is allocated once by `begin(b
 | `TINYMQ_BROKER_MAX_LISTENERS` | 4 | Number of listeners |
 | `TINYMQ_BROKER_MAX_TAPS` | 2 | Number of bridges |
 | `TINYMQ_BROKER_TOPIC_ALIAS_MAX` | 8 | Topic aliases a 5.0 client may use (0: none) |
+| `TINYMQ_AUTH_DATA` | 128 | Longest Authentication Data an enhanced authentication handler answers with (client and broker) |
 | `TINYMQ_ENABLE_MQTT5` | 1 | Accept 5.0 in the broker |
 | `TINYMQ_ENABLE_SHARED_SUB` | 1 | Shared subscriptions |
 | `TINYMQ_ENABLE_QOS2_DELIVERY` | 1 | QoS 2 delivery to subscribers |
@@ -60,6 +61,7 @@ With `TINYMQ_BROKER_POOL_BYTES` set to 0, the pool is allocated once by `begin(b
 | `TINYMQ_SN_MAX_TOPICS` | 64 | Total topic ID registrations |
 | `TINYMQ_SN_MAX_PREDEFINED` | 16 | Predefined topics |
 | `TINYMQ_SN_POOL_BYTES` | 4096 | Space for registered topic names |
+| `TINYMQ_SN_MAX_NODE_ID` | 8 | Longest Wireless Node Id behind a forwarder |
 | `TINYMQ_SN_CLIENT_LEVEL` | 2 | MQTT-SN client level (§7) |
 | `TINYMQ_SN_CLIENT_BUFFER` | 256 | Maximum datagram length for the MQTT-SN client |
 | `TINYMQ_SN_CLIENT_MAX_TOPICS` | 8 | Topic IDs the MQTT-SN client remembers |
@@ -147,6 +149,7 @@ mqtt.subscribe("room/#", o, 7);              // subscription identifier 7
 - The client follows the Receive Maximum, Maximum QoS, Retain Available, Maximum Packet Size and Server Keep Alive the broker sent in CONNACK (a publish beyond them returns −1). An assigned Client ID is in `assignedClientId()`
 - `disconnect(tinymq::kDisconnectWithWill)` makes the broker send the will even on a disconnect
 - A protocol violation found on this side is answered with a DISCONNECT carrying a reason code before the connection is closed. The reason for a DISCONNECT from the broker is in `onDisconnect` / `lastReason()`
+- Enhanced authentication (AUTH) and re-authentication: §9
 
 ### Broker
 
@@ -154,7 +157,7 @@ mqtt.subscribe("room/#", o, 7);              // subscription identifier 7
 - Subscription identifiers, No Local, Retain As Published, Retain Handling, shared subscriptions (`$share/<group>/<filter>`; delivered to online members in turn, with no retained messages)
 - Topic aliases from clients (`TINYMQ_BROKER_TOPIC_ALIAS_MAX`; the broker does not use them)
 - Reason codes: PUBACK 0x10 (no subscribers) / 0x87 (not authorized) / 0x99 (payload not UTF-8), SUBACK 0x8F / 0x87 / 0x97 / 0x9E, UNSUBACK 0x11, and DISCONNECT on protocol violations
-- Enhanced authentication (AUTH) is not supported. A CONNECT with an Authentication Method is refused with 0x8C
+- Enhanced authentication (AUTH), including re-authentication: §9
 
 ## 7. MQTT-SN
 
@@ -165,7 +168,19 @@ mqtt.subscribe("room/#", o, 7);              // subscription identifier 7
 - Predefined topics (`addPredefinedTopic()`) and 2-character short topic names can be used without registering. QoS −1 (PUBLISH without a connection) is accepted only for these two
 - **Sleep**: when a client puts a duration on its DISCONNECT, messages during that time (QoS 0 too) are held in the broker's queue, delivered on the wake-up PINGREQ, and then PINGRESP is returned
 - **UDP losses**: unacknowledged deliveries are resent with DUP every Tretry (10 s by default); after more than Nretry (3 by default), the client is treated as disconnected and its will is sent (`setRetry()`)
-- Source addresses are not authenticated. Use it **on a closed network or inside a TinyWG tunnel**
+- **Forwarders**: messages wrapped in Forwarder Encapsulation are taken apart; each Wireless Node Id behind a forwarder is a client of its own, and replies go back wrapped for it (`TINYMQ_SN_MAX_NODE_ID`, 8 bytes by default)
+- `setSourceFilter()` drops datagrams from senders the callback refuses. It sees the address, the port and, behind a forwarder, the node id:
+
+```cpp
+bool onSource(const tinymq::Endpoint &from, void *)
+{
+    return from.ip[0] == 192 && from.ip[1] == 168 && from.ip[2] == 1;  // 192.168.1.x only
+}
+
+sn.setSourceFilter(onSource);
+```
+
+- Source addresses are not authenticated (the filter only sorts them). Use it **on a closed network or inside a TinyWG tunnel**
 
 ### Client (`TinyMQClientSn`)
 
@@ -224,6 +239,28 @@ broker.onAuthorize(onAcl);
 - Publishes to topics starting with `$SYS` are not accepted from clients (acknowledged and dropped)
 - The same authorization applies to MQTT-SN clients (decide by Client ID; there is no user name)
 
+### Enhanced authentication (5.0 AUTH)
+
+A 5.0 client that puts an Authentication Method in CONNECT goes through `onEnhancedAuth()`: challenge-response methods (SCRAM and the like) or tokens. The handler sees one step at a time and answers `kContinueAuthentication` (its reply goes to the client in AUTH), `kSuccess` or a reason code to refuse. The same handler serves re-authentication (AUTH 0x19 from a connected client); a failed re-authentication ends the connection.
+
+```cpp
+uint8_t onEnhancedAuth(tinymq::AuthStep &st, void *)
+{
+    if (!st.method.equals("TOKEN"))
+        return tinymq::kBadAuthenticationMethod;
+    if (!st.data.equals("my-token"))
+        return tinymq::kNotAuthorized;
+    return tinymq::kSuccess;
+}
+
+broker.onEnhancedAuth(onEnhancedAuth);
+```
+
+- `st.step` counts the steps of one exchange from 0, and `st.conn` is the connection number, for methods that keep state between steps. The reply (`st.reply`, up to `TINYMQ_AUTH_DATA` bytes, 128 by default) goes in AUTH, or in CONNACK with the last step
+- `onAuthenticate()` still runs after enhanced authentication succeeded
+- Without `onEnhancedAuth()`, a CONNECT with an Authentication Method is refused with 0x8C
+- On the client, the method and the first data go in CONNECT with `setConnectProperties()`; `onAuth()` answers each AUTH and sees the data of the final CONNACK; `reauthenticate(data)` starts re-authentication
+
 ## 10. Persistence
 
 `saveState()` writes out retained messages (with their remaining expiry) and sessions that have an expiry (subscriptions and undelivered QoS 1 / 2). Call `loadState()` after `begin()` and before registering listeners.
@@ -248,6 +285,6 @@ broker.onAuthorize(onAcl);
 ## 12. Limitations
 
 - The MQTT-SN gateway and client are IPv4 only
-- MQTT 5.0 enhanced authentication (AUTH), TLS on the broker side, WebSocket and MQTT-SN 2.0 are out of scope
+- TLS on the broker side, WebSocket and MQTT-SN 2.0 are out of scope
 - Messages the bridge keeps are in RAM only (a restart loses them)
 - The broker does not use topic aliases itself (it only accepts them)

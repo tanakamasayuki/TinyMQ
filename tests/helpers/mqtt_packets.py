@@ -316,6 +316,10 @@ def disconnect5(reason=0, props=b""):
     return packet(0xE0, bytes([reason]) + props_block(props))
 
 
+def auth5(reason=0x18, props=b""):
+    return packet(0xF0, bytes([reason]) + props_block(props))
+
+
 def sub_options(qos=0, no_local=False, rap=False, rh=0):
     return qos | (4 if no_local else 0) | (8 if rap else 0) | (rh << 4)
 
@@ -353,6 +357,13 @@ class RawClient5(RawClient):
         assert first == 0x90 and body[:2] == struct.pack(">H", packet_id), (first, body)
         _, pos = parse_props(body, 2)
         return list(body[pos:])
+
+    def expect_auth(self, reason, timeout=5):
+        """Waits for an AUTH with `reason`; returns its properties."""
+        first, body = self.recv_packet(timeout)
+        assert first == 0xF0 and body[:1] == bytes([reason]), (first, body)
+        props, _ = parse_props(body, 1)
+        return props
 
     def expect_disconnect(self, reason, timeout=5):
         """Waits for a DISCONNECT with `reason`, then for the close."""

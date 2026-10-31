@@ -29,6 +29,9 @@ public:
     void setAdvertise(uint16_t seconds, IPAddress broadcast, uint16_t port);
     void setRetry(uint32_t ms, uint8_t count) { gateway_.setRetry(ms, count); }
     void setQosMinusOne(bool on) { gateway_.setQosMinusOne(on); }
+    // Take datagrams only from senders the filter accepts (address, port,
+    // and the Wireless Node Id behind a forwarder)
+    void setSourceFilter(tinymq::SnGateway::SourceFilter f, void *context = nullptr) { gateway_.setSourceFilter(f, context); }
 
     size_t clients() const { return gateway_.clients(); }
     tinymq::SnGateway &gateway() { return gateway_; }

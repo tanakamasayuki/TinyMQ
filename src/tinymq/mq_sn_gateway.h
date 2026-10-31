@@ -16,11 +16,18 @@
 
 namespace tinymq {
 
+// A client's address: IPv4 and UDP port, plus the Wireless Node Id when it
+// is behind a forwarder (Forwarder Encapsulation; nodeLen 0 otherwise)
 struct Endpoint {
     uint8_t ip[4];
     uint16_t port;
+    uint8_t nodeLen = 0;
+    uint8_t node[TINYMQ_SN_MAX_NODE_ID];
 
-    bool operator==(const Endpoint &o) const { return port == o.port && memcmp(ip, o.ip, 4) == 0; }
+    bool operator==(const Endpoint &o) const
+    {
+        return port == o.port && memcmp(ip, o.ip, 4) == 0 && nodeLen == o.nodeLen && memcmp(node, o.node, nodeLen) == 0;
+    }
     bool operator!=(const Endpoint &o) const { return !(*this == o); }
 };
 
@@ -32,6 +39,10 @@ public:
 
 class SnGateway {
 public:
+    // Whether datagrams from `from` are taken (after the forwarder's
+    // encapsulation is removed, so the node id is known)
+    typedef bool (*SourceFilter)(const Endpoint &from, void *context);
+
     SnGateway();
 
     void begin(Broker &broker, DatagramSender &out);
@@ -48,6 +59,8 @@ public:
     void setRetry(uint32_t ms, uint8_t count);
     // Accept PUBLISH with QoS -1 from any address (default true)
     void setQosMinusOne(bool on) { qosMinusOne_ = on; }
+    // Datagrams from senders the filter refuses are dropped (default: all taken)
+    void setSourceFilter(SourceFilter f, void *context = nullptr) { filter_ = f; filterCtx_ = context; }
 
     // ---- transport side
     void input(const Endpoint &from, const uint8_t *data, size_t len, uint32_t now);
@@ -171,7 +184,8 @@ private:
     Deferred deferred_[8];
     size_t predefinedCount_ = 0;
 
-    uint8_t tx_[TINYMQ_MAX_PACKET + 8];      // outgoing datagram
+    // outgoing datagram, with room for a forwarder's encapsulation in front
+    uint8_t tx_[TINYMQ_MAX_PACKET + 8 + 3 + TINYMQ_SN_MAX_NODE_ID];
     uint8_t asm_[TINYMQ_MAX_PACKET + 8];     // an MQTT packet from the broker being assembled
     size_t asmLen_ = 0;
     int asmOwner_ = -1;
@@ -191,6 +205,8 @@ private:
     uint32_t retryMs_ = 10000;
     uint8_t retryCount_ = 3;
     bool qosMinusOne_ = true;
+    SourceFilter filter_ = nullptr;
+    void *filterCtx_ = nullptr;
 };
 
 }  // namespace tinymq

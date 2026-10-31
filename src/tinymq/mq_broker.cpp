@@ -23,6 +23,10 @@ Broker::Broker() : store_(pool_)
         c.session = kNone;
         c.rxLen = 0;
         c.broken = false;
+#if TINYMQ_ENABLE_MQTT5
+        c.authConnect = Pool::kNull;
+        c.authMethod = Pool::kNull;
+#endif
     }
     for (Session &s : sessions_)
         s.used = false;
@@ -159,6 +163,12 @@ int Broker::accept(Link &link, uint32_t now)
         c.openedAt = now;
         c.rxLen = 0;
         c.broken = false;
+#if TINYMQ_ENABLE_MQTT5
+        c.authConnect = Pool::kNull;
+        c.authMethod = Pool::kNull;
+        c.authStep = 0;
+        c.reauth = false;
+#endif
 #if TINYMQ_BROKER_TOPIC_ALIAS_MAX > 0
         for (uint32_t &a : c.alias)
             a = Pool::kNull;
@@ -669,6 +679,19 @@ void Broker::handlePacket(int conn, const FixedHeader &h, const uint8_t *body)
 {
     Conn &c = conns_[conn];
     if (c.state == kWaitConnect) {
+#if TINYMQ_ENABLE_MQTT5
+        if (c.authConnect != Pool::kNull) {
+            // in enhanced authentication: AUTH, or DISCONNECT to give up
+            if (h.type == PacketType::Auth) {
+                handleAuth(conn, h, body, h.remaining);
+            } else {
+                if (h.type != PacketType::Disconnect)
+                    sendConnack(conn, kMqtt5, kProtocolError, false);
+                closeConn(conn, false);
+            }
+            return;
+        }
+#endif
         if (h.type == PacketType::Connect)
             handleConnect(conn, body, h.remaining);
         else
@@ -703,14 +726,19 @@ void Broker::handlePacket(int conn, const FixedHeader &h, const uint8_t *body)
     case PacketType::Disconnect:
         handleDisconnect(conn, h, body, h.remaining);
         break;
+#if TINYMQ_ENABLE_MQTT5
+    case PacketType::Auth:
+        handleAuth(conn, h, body, h.remaining);
+        break;
+#endif
     default:
-        // a second CONNECT, AUTH (no enhanced authentication), or a packet only servers send
+        // a second CONNECT, or a packet only servers send
         closeConn(conn, true, kProtocolError);
         break;
     }
 }
 
-void Broker::handleConnect(int conn, const uint8_t *body, size_t len)
+void Broker::handleConnect(int conn, const uint8_t *body, size_t len, Bytes authReply)
 {
     Conn &c = conns_[conn];
     Connect cp;
@@ -739,11 +767,39 @@ void Broker::handleConnect(int conn, const uint8_t *body, size_t len)
     Property p;
     uint32_t expiry;
     if (v5) {
-        if (findProp(cp.props, kAuthenticationMethod, p)) {
-            sendConnack(conn, c.version, kBadAuthenticationMethod, false);
-            closeConn(conn, false);
+#if TINYMQ_ENABLE_MQTT5
+        if (findProp(cp.props, kAuthenticationMethod, p) && c.authConnect == Pool::kNull) {
+            // enhanced authentication: CONNECT is kept until it succeeds
+            Bytes method = p.data;
+            Bytes data = findProp(cp.props, kAuthenticationData, p) ? p.data : Bytes();
+            uint8_t reason = kBadAuthenticationMethod;
+            if (onEnhancedAuth_ && method.len <= 64) {
+                c.authMethod = storeString(method);
+                c.authMethodLen = (uint16_t)method.len;
+                c.authConnect = pool_.alloc(len);
+                c.authConnectLen = (uint32_t)len;
+                if (c.authMethod == Pool::kNull || c.authConnect == Pool::kNull) {
+                    reason = kServerUnavailable;
+                } else {
+                    memcpy(pool_.ptr(c.authConnect), body, len);
+                    reason = authStep(conn, cp.clientId, method, data, false);
+                }
+            }
+            if (reason == kContinueAuthentication) {
+                sendAuth(conn, kContinueAuthentication, Bytes(authReply_, (uint32_t)authReplyLen_));
+                return;
+            }
+            if (reason != kSuccess) {
+                sendConnack(conn, c.version, reason, false);
+                closeConn(conn, false);
+                return;
+            }
+            // done in one step: go on with the kept CONNECT
+            const uint8_t *kept = pool_.ptr(c.authConnect);
+            handleConnect(conn, kept, len, Bytes(authReply_, (uint32_t)authReplyLen_));
             return;
         }
+#endif
         expiry = findProp(cp.props, kSessionExpiryInterval, p) ? p.value : 0;
         c.receiveMax = findProp(cp.props, kReceiveMaximum, p) ? (uint16_t)p.value : 0xFFFF;
         c.maxPacket = findProp(cp.props, kMaximumPacketSize, p) ? p.value : 0xFFFFFFFF;
@@ -849,9 +905,18 @@ void Broker::handleConnect(int conn, const uint8_t *body, size_t len)
     c.state = kActive;
     c.session = (uint16_t)s;
     c.keepAlive = cp.keepAlive;
-    uint8_t propBuf[64];
+    uint8_t propBuf[64 + 64 + TINYMQ_AUTH_DATA + 8];
     PropWriter cw(propBuf, sizeof(propBuf));
     if (v5) {
+#if TINYMQ_ENABLE_MQTT5
+        if (c.authMethod != Pool::kNull) {
+            cw.string(kAuthenticationMethod, string(c.authMethod, c.authMethodLen));
+            if (authReply.len)
+                cw.string(kAuthenticationData, authReply);
+        }
+#else
+        (void)authReply;
+#endif
         if (capped)
             cw.u32(kSessionExpiryInterval, expiry);
         if (assigned)
@@ -867,6 +932,11 @@ void Broker::handleConnect(int conn, const uint8_t *body, size_t len)
             cw.byte(kSharedSubscriptionAvailable, 0);
     }
     sendConnack(conn, c.version, kSuccess, present, cw.result());
+#if TINYMQ_ENABLE_MQTT5
+    pool_.free(c.authConnect);  // `body` may have pointed here: not used from now on
+    c.authConnect = Pool::kNull;
+    c.authStep = 0;
+#endif
     if (onClient_)
         onClient_(string(ss.clientId, ss.clientIdLen), true, onClientCtx_);
     if (present)
@@ -1155,6 +1225,111 @@ void Broker::handleDisconnect(int conn, const FixedHeader &h, const uint8_t *bod
     closeConn(conn, d.reason == kDisconnectWithWill);
 }
 
+#if TINYMQ_ENABLE_MQTT5
+void Broker::handleAuth(int conn, const FixedHeader &h, const uint8_t *body, size_t len)
+{
+    Conn &c = conns_[conn];
+    bool connecting = c.state == kWaitConnect;
+    Disconnect a;
+    uint8_t r = decodeDisconnect(h, body, len, c.version, a);
+    if (r == kSuccess)
+        r = checkProps(a.props, kInAuth);
+    Property p;
+    Bytes method = findProp(a.props, kAuthenticationMethod, p) ? p.data : Bytes();
+    Bytes data = findProp(a.props, kAuthenticationData, p) ? p.data : Bytes();
+    // AUTH only with the method of CONNECT: 0x18 answers the broker, 0x19
+    // starts re-authentication
+    if (r == kSuccess && (c.authMethod == Pool::kNull || !method.equals(string(c.authMethod, c.authMethodLen))))
+        r = kProtocolError;
+    if (r == kSuccess && a.reason != (connecting || c.reauth ? kContinueAuthentication : kReAuthenticate))
+        r = kProtocolError;
+    if (r != kSuccess) {
+        if (connecting) {
+            sendConnack(conn, kMqtt5, r, false);
+            closeConn(conn, false);
+        } else {
+            closeConn(conn, true, r);
+        }
+        return;
+    }
+    Bytes clientId;
+    if (connecting) {
+        Connect cp;
+        decodeConnect(pool_.ptr(c.authConnect), c.authConnectLen, cp);
+        clientId = cp.clientId;
+    } else {
+        const Session &ss = sessions_[c.session];
+        clientId = string(ss.clientId, ss.clientIdLen);
+        if (!c.reauth)
+            c.authStep = 0;
+    }
+    r = authStep(conn, clientId, method, data, !connecting);
+    Bytes reply(authReply_, (uint32_t)authReplyLen_);
+    if (r == kContinueAuthentication) {
+        c.reauth = !connecting;
+        sendAuth(conn, kContinueAuthentication, reply);
+    } else if (r != kSuccess) {
+        if (connecting) {
+            sendConnack(conn, kMqtt5, r, false);
+            closeConn(conn, false);
+        } else {
+            closeConn(conn, true, r);
+        }
+    } else if (connecting) {
+        handleConnect(conn, pool_.ptr(c.authConnect), c.authConnectLen, reply);
+    } else {
+        c.reauth = false;
+        c.authStep = 0;
+        sendAuth(conn, kSuccess, reply);
+    }
+}
+
+uint8_t Broker::authStep(int conn, Bytes clientId, Bytes method, Bytes data, bool reauth)
+{
+    Conn &c = conns_[conn];
+    AuthStep st;
+    st.conn = conn;
+    st.clientId = clientId;
+    st.method = method;
+    st.data = data;
+    st.reauth = reauth;
+    st.step = c.authStep;
+    st.reply = authReply_;
+    st.replyCap = sizeof(authReply_);
+    st.replyLen = 0;
+    if (c.authStep < 0xFF)
+        ++c.authStep;
+    uint8_t r = onEnhancedAuth_ ? onEnhancedAuth_(st, onEnhancedAuthCtx_) : (uint8_t)kNotAuthorized;
+    authReplyLen_ = st.replyLen <= sizeof(authReply_) ? st.replyLen : 0;
+    return r;
+}
+
+void Broker::sendAuth(int conn, uint8_t reason, Bytes data)
+{
+    Conn &c = conns_[conn];
+    uint8_t buf[64 + TINYMQ_AUTH_DATA + 8];
+    PropWriter w(buf, sizeof(buf));
+    w.string(kAuthenticationMethod, string(c.authMethod, c.authMethodLen));
+    if (data.len)
+        w.string(kAuthenticationData, data);
+    Disconnect a;
+    a.reason = reason;
+    a.props = w.result();
+    size_t n = encodeDisconnect(tx_, sizeof(tx_), kMqtt5, PacketType::Auth, a);
+    send(conn, tx_, n);
+}
+
+void Broker::clearAuth(Conn &c)
+{
+    pool_.free(c.authConnect);
+    pool_.free(c.authMethod);
+    c.authConnect = Pool::kNull;
+    c.authMethod = Pool::kNull;
+    c.authStep = 0;
+    c.reauth = false;
+}
+#endif
+
 void Broker::closeConn(int conn, bool publishWillNow, uint8_t reason)
 {
     Conn &c = conns_[conn];
@@ -1178,6 +1353,9 @@ void Broker::closeConn(int conn, bool publishWillNow, uint8_t reason)
         pool_.free(a);
         a = Pool::kNull;
     }
+#endif
+#if TINYMQ_ENABLE_MQTT5
+    clearAuth(c);
 #endif
     link->close();
     if (s == kNone)

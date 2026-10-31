@@ -15,6 +15,7 @@ public:
     typedef tinymq::ClientEngine::SubackHandler SubackHandler;
     typedef tinymq::ClientEngine::PublishedHandler PublishedHandler;
     typedef tinymq::ClientEngine::ClosedHandler ClosedHandler;
+    typedef tinymq::ClientEngine::AuthHandler AuthHandler;
 
     explicit TinyMQClient(Client &client);
 
@@ -43,6 +44,8 @@ public:
     void onSubscribe(SubackHandler h, void *context = nullptr) { engine_.onSuback(h, context); }
     void onPublished(PublishedHandler h, void *context = nullptr) { engine_.onPublished(h, context); }
     void onDisconnect(ClosedHandler h, void *context = nullptr) { engine_.onClosed(h, context); }
+    // 5.0 enhanced authentication (the method goes in setConnectProperties())
+    void onAuth(AuthHandler h, void *context = nullptr) { engine_.onAuth(h, context); }
 
     // Opens the connection and waits for CONNACK. True when accepted.
     bool connect();
@@ -54,6 +57,8 @@ public:
     // 5.0: tinymq::kDisconnectWithWill asks the server to publish the will
     void disconnect(uint8_t reason = tinymq::kSuccess);
     bool connected() const { return engine_.connected(); }
+    // 5.0: re-authentication with the Authentication Method of CONNECT
+    bool reauthenticate(tinymq::Bytes data = tinymq::Bytes()) { return engine_.reauthenticate(data); }
     void update();
 
     // Packet identifier for QoS 1 / 2, 0 for QoS 0, -1 on failure

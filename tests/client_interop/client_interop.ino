@@ -13,11 +13,15 @@
 //   PUBP <qos> <retain> <topic> <payload>  (with the PROP properties)
 //   SUBO <qos> <no local> <rap> <retain handling> <subscription id> <filter>
 //   SEXP <s> (session expiry)   WDELAY <s> (will delay)   DISC <reason>
+//   XAUTH <method> <data> <answer>  (enhanced authentication: CONNECT carries
+//         the method and data, each AUTH 0x18 is answered with <answer>)   XAUTH -
+//   REAUTH <data>
 // Events printed:
 //   CONNECT ok|fail <reason>   CONNACK <reason> <session present>
 //   SUB <id>  UNSUB <id>  PUB <id>  SUBACK <id> <codes...>  UNSUBACK <id>
 //   PUBDONE <id> <reason>  MSG <qos> <retain> <dup> <topic> <len> <payload>
 //   CLOSED <reason>  STATUS connected=<0|1> inflight=<n> dropped=<n>
+//   AUTHSTEP <reason> <data>   REAUTH <0|1>
 //   PROPS ct=.. rt=.. cd=.. pfi=.. exp=.. sid=a,b up=k=v;k=v   (after MSG, 5.0)
 //   SERVER assigned=<id> ka=<s> rmax=<n> mqos=<n> retain=<0|1> maxpkt=<n>   (after CONNECT ok)
 
@@ -39,6 +43,8 @@ static uint8_t g_props[256];
 static size_t g_propsLen;
 static char g_propText[4][48];  // strings the PROP block points to
 static uint8_t g_willProps[16];
+static uint8_t g_authProps[96];
+static char g_authAnswer[32];
 static size_t g_lineLen;
 
 static void printHex2(uint8_t v)
@@ -120,6 +126,19 @@ static void buildProps()
     if (g_upName[0])
         w.pair(tinymq::kUserProperty, tinymq::Bytes(g_upName), tinymq::Bytes(g_upValue));
     g_propsLen = w.ok() ? w.result().len : 0;
+}
+
+static bool onAuth(uint8_t reason, tinymq::Bytes, tinymq::Bytes data, uint8_t *reply, size_t cap, size_t &replyLen, void *)
+{
+    Serial.print("AUTHSTEP ");
+    printHex2(reason);
+    Serial.print(' ');
+    Serial.write(data.data, data.len);
+    Serial.println();
+    replyLen = strlen(g_authAnswer) < cap ? strlen(g_authAnswer) : cap;
+    if (reply)
+        memcpy(reply, g_authAnswer, replyLen);
+    return true;
 }
 
 static void onConnack(uint8_t reason, bool sessionPresent, void *)
@@ -288,6 +307,24 @@ static void command(char *line)
         Serial.println("OK WDELAY");
     } else if (!strcmp(cmd, "DISC")) {
         mqtt.disconnect((uint8_t)strtol(nextWord(&s), nullptr, 16));
+    } else if (!strcmp(cmd, "XAUTH")) {
+        char *method = nextWord(&s);
+        if (!strcmp(method, "-")) {
+            mqtt.setConnectProperties(tinymq::Bytes());
+        } else {
+            static char m[32], data[32];
+            copyTo(m, sizeof(m), method);
+            copyTo(data, sizeof(data), nextWord(&s));
+            copyTo(g_authAnswer, sizeof(g_authAnswer), nextWord(&s));
+            tinymq::PropWriter w(g_authProps, sizeof(g_authProps));
+            w.string(tinymq::kAuthenticationMethod, tinymq::Bytes(m));
+            w.string(tinymq::kAuthenticationData, tinymq::Bytes(data));
+            mqtt.setConnectProperties(w.result());
+        }
+        Serial.println("OK XAUTH");
+    } else if (!strcmp(cmd, "REAUTH")) {
+        Serial.print("REAUTH ");
+        Serial.println(mqtt.reauthenticate(tinymq::Bytes(s)) ? 1 : 0);
     } else if (!strcmp(cmd, "STATUS")) {
         Serial.print("STATUS connected=");
         Serial.print(mqtt.connected() ? 1 : 0);
@@ -311,6 +348,7 @@ void setup()
     mqtt.onSubscribe(onSuback);
     mqtt.onPublished(onPublished);
     mqtt.onDisconnect(onClosed);
+    mqtt.onAuth(onAuth);
 }
 
 void loop()

@@ -13,6 +13,7 @@ PUBCOMP, PUBREC, PUBREL = 0x0E, 0x0F, 0x10
 SUBSCRIBE, SUBACK, UNSUBSCRIBE, UNSUBACK = 0x12, 0x13, 0x14, 0x15
 PINGREQ, PINGRESP, DISCONNECT = 0x16, 0x17, 0x18
 WILLTOPICUPD, WILLTOPICRESP, WILLMSGUPD, WILLMSGRESP = 0x1A, 0x1B, 0x1C, 0x1D
+ENCAPSULATED = 0xFE
 
 NORMAL, PREDEFINED, SHORT = 0, 1, 2
 
@@ -40,24 +41,36 @@ def short_id(name):
 
 
 class SnPeer:
-    def __init__(self, port, host=None, timeout=5):
+    """An MQTT-SN client. With `node` (bytes) it sits behind a forwarder:
+    each message is wrapped in Forwarder Encapsulation with that Wireless
+    Node Id, and replies must come back wrapped for it. `sock` shares
+    another peer's socket (several nodes behind one forwarder)."""
+
+    def __init__(self, port, host=None, timeout=5, node=None, sock=None):
         self.addr = (host or target.HOST, port)
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind((target.bind_address_for(self.addr[0]), 0))
+        self.node = node
+        self.owns_sock = sock is None
+        self.sock = sock or socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if self.owns_sock:
+            self.sock.bind((target.bind_address_for(self.addr[0]), 0))
         self.sock.settimeout(timeout)
         self.msg_id = 0
         self.topics = {}  # topic id -> name, from REGISTER / REGACK / SUBACK
         self.pending = []  # messages received while waiting for another type
 
     def close(self):
-        self.sock.close()
+        if self.owns_sock:
+            self.sock.close()
 
     def next_id(self):
         self.msg_id = self.msg_id % 0xFFFF + 1
         return self.msg_id
 
     def send(self, msg_type, body=b""):
-        self.sock.sendto(frame(msg_type, body), self.addr)
+        data = frame(msg_type, body)
+        if self.node is not None:
+            data = bytes([3 + len(self.node), ENCAPSULATED, 0]) + self.node + data
+        self.sock.sendto(data, self.addr)
 
     def recv(self, timeout=5):
         """Returns (type, body) of the next datagram."""
@@ -65,6 +78,10 @@ class SnPeer:
             return self.pending.pop(0)
         self.sock.settimeout(timeout)
         data, _ = self.sock.recvfrom(4096)
+        if self.node is not None:
+            head = data[0]
+            assert data[1] == ENCAPSULATED and data[3:head] == self.node, data
+            data = data[head:]
         if data[0] == 0x01:
             total = struct.unpack(">H", data[1:3])[0]
             assert total == len(data)

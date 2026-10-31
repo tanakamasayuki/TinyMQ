@@ -32,6 +32,10 @@ onDisconnect	KEYWORD2
 lastReason	KEYWORD2
 addListener	KEYWORD2
 onAuthenticate	KEYWORD2
+onEnhancedAuth	KEYWORD2
+onAuth	KEYWORD2
+reauthenticate	KEYWORD2
+setSourceFilter	KEYWORD2
 onAuthorize	KEYWORD2
 onClient	KEYWORD2
 setMaxQos	KEYWORD2

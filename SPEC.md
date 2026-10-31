@@ -2,7 +2,7 @@
 
 [日本語](SPEC.ja.md)
 
-> Status: Phases 0 to 4 and 6 to 8 implemented (2026-10-28), with bridges, the lwIP listener and persistence: MQTT 3.1.1 / 3.1 / 5.0 client and broker (enhanced authentication aside), MQTT-SN 1.2 gateway and client. Tested on the host and on ESP32 / ESP32-S3 boards over Wi-Fi. Values not yet decided are marked `TBD`.
+> Status: Phases 0 to 4 and 6 to 8 implemented (2026-10-28), with bridges, the lwIP listener and persistence: MQTT 3.1.1 / 3.1 / 5.0 client and broker (enhanced authentication included), MQTT-SN 1.2 gateway and client. Tested on the host and on ESP32 / ESP32-S3 boards over Wi-Fi. Values not yet decided are marked `TBD`.
 
 ## 1. Purpose and scope
 
@@ -100,7 +100,7 @@ The goal is all of MQTT 3.1.1 / 5.0. `[lite]` marks what settings can remove (§
 | Message expiry | — | yes | |
 | Maximum Packet Size, Maximum QoS, Retain Available, ... in CONNACK | — | yes | features removed by settings are announced correctly in CONNACK |
 | Server DISCONNECT with reason code | — | yes | |
-| Enhanced authentication (AUTH) | — | `TBD` | maybe only the callback shape |
+| Enhanced authentication (AUTH) | yes | yes | a callback per step (`onEnhancedAuth()` / `onAuth()`), re-authentication included |
 | `$SYS` topics | yes | yes | `[lite]`. Contents follow mosquitto `TBD` |
 | MQTT 3.1 (protocol name `MQIsdp`) | yes | — | for old clients; cheap to accept `TBD` |
 
@@ -138,11 +138,11 @@ An aggregating gateway built into the broker. MQTT-SN clients enter the broker's
 | WILLTOPICUPD / WILLMSGUPD | |
 | ADVERTISE / SEARCHGW / GWINFO | broadcast support depends on the core. `[lite]` |
 | Retransmission (Tretry / Nretry) | |
-| Forwarder Encapsulation | `TBD` |
+| Forwarder Encapsulation | each Wireless Node Id behind a forwarder is a client of its own; replies go back wrapped for it (ids up to `TINYMQ_SN_MAX_NODE_ID`, 8 bytes) |
 
 Sessions are identified by the client's address and port (as in MQTT-SN 1.2). If the source changes after sleeping, the session is found by Client ID.
 
-**Security**: MQTT-SN 1.2 has neither encryption nor authentication. It is meant for closed networks or inside a TinyWG tunnel, and the documentation says so. Each listener can have an allow-list of source addresses.
+**Security**: MQTT-SN 1.2 has neither encryption nor authentication. It is meant for closed networks or inside a TinyWG tunnel, and the documentation says so. Each listener can filter its sources with a callback (`setSourceFilter()`: address, port and node id).
 
 ### 4.5 MQTT-SN 1.2 — client (`TinyMQClientSn`)
 
@@ -214,7 +214,16 @@ The planned `TINYMQ_ENABLE_SN` / `TINYMQ_ENABLE_BRIDGE` / `TINYMQ_ENABLE_PERSIST
 - QoS 0 losses are subscriber queues (`TINYMQ_BROKER_MAX_QUEUED`, 32 by default) overflowing, counted in `droppedMessages()`. `TinyMQTcpListener` waits in its writes, which holds the sender back through TCP: nothing is lost, but everything is slower.
 - **Delayed ACK**: QoS 0 from a client that leaves Nagle's algorithm on (paho-mqtt and others) waits for the broker's delayed ACK (up to 250 ms in lwIP). `TinyMQLwipListener` acknowledges at once, so it does not happen there.
 - Two problems of `TinyMQLwipListener` were fixed while measuring: writes ignored the segment limit of the send queue (`TCP_SND_QUEUELEN`) and broke connections, and `tcp_output()` after every write sent each small packet in its own segment (fixing the latter took one-to-one from 244 to 2967 msg/s).
-- ESP32 (D0WDQ6): other suites were using the board at the time and uploads failed; no values after the fixes.
+
+ESP32 (D0WDQ6, 1-2, the same Wi-Fi, 2026-10-31):
+
+| | `TinyMQLwipListener` | `TinyMQTcpListener<WiFiServer>` |
+|---|---|---|
+| Round trip QoS 0 (median / p95) | 3.48 / 10.3 ms | 243 / 451 ms (delayed ACK) |
+| Round trip QoS 1 (median / p95) | 4.16 / 13.7 ms | 5.08 / 33.9 ms |
+| One-to-one stream QoS 0 (100 bytes) | 3787 msg/s (82.5% delivered) | 1241 msg/s (100%) |
+| One-to-one stream QoS 1 | 175 msg/s | 174 msg/s |
+| One-to-four fan-out QoS 0 | 7278 deliveries/s (61%) | 1134 deliveries/s (100%) |
 
 ESP32-P4 (bench 2-3, wired Ethernet at 100 Mbps, 2026-10-31):
 

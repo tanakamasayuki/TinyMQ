@@ -232,6 +232,49 @@ def scenario_v5_server_disconnect(d, port):
         fake.close()
 
 
+def scenario_v5_enhanced_auth(d, port):
+    """AUTH exchanges with a scripted server: while connecting, re-authentication, and an AUTH out of turn."""
+    def auth(reason, data):
+        return mp.auth5(reason, mp.prop_str(0x15, "TEST-CHALLENGE") + mp.prop_str(0x16, data))
+
+    def expect_auth(fake, reason, data):
+        first, body = fake.recv_packet()
+        assert first == 0xF0 and body[0] == reason, (first, body)
+        props, _ = mp.parse_props(body, 1)
+        assert mp.prop(props, 0x15) == b"TEST-CHALLENGE" and mp.prop(props, 0x16) == data, props
+
+    fake = fb.FakeBroker(d.bind)
+    try:
+        d.reset(fake.port, client_id="tm5a", proto=5)
+        d.setting("XAUTH TEST-CHALLENGE hello nonce-ok")
+        d.send("CONNECT")
+        fake.accept()
+        first, body = fake.recv_packet()
+        props, _ = mp.parse_props(body, 10)
+        assert mp.prop(props, 0x15) == b"TEST-CHALLENGE" and mp.prop(props, 0x16) == b"hello", props
+        fake.send(auth(0x18, "nonce"))
+        d.expect(r"^AUTHSTEP 18 nonce")
+        expect_auth(fake, 0x18, b"nonce-ok")
+        fake.send(mp.packet(0x20, b"\x00\x00" + mp.props_block(mp.prop_str(0x15, "TEST-CHALLENGE") + mp.prop_str(0x16, "welcome"))))
+        d.expect(r"^AUTHSTEP 00 welcome")
+        d.expect(r"^CONNECT ok")
+        d.send("REAUTH again")
+        d.expect(r"^REAUTH 1")
+        expect_auth(fake, 0x19, b"again")
+        fake.send(auth(0x18, "nonce2"))
+        d.expect(r"^AUTHSTEP 18 nonce2")
+        expect_auth(fake, 0x18, b"nonce-ok")
+        fake.send(auth(0x00, "welcome2"))
+        d.expect(r"^AUTHSTEP 00 welcome2")
+        # AUTH success with no re-authentication in progress
+        fake.send(auth(0x00, "x"))
+        assert fake.recv_packet() == (0xE0, b"\x82")
+        d.expect(r"^CLOSED 82")
+    finally:
+        d.setting("XAUTH -")
+        fake.close()
+
+
 SCENARIOS = (
     ("v5_props", scenario_v5_props),
     ("v5_no_local", scenario_v5_no_local),
@@ -241,4 +284,5 @@ SCENARIOS = (
     ("v5_takeover", scenario_v5_takeover),
     ("v5_server_limits", scenario_v5_server_limits),
     ("v5_server_disconnect", scenario_v5_server_disconnect),
+    ("v5_enhanced_auth", scenario_v5_enhanced_auth),
 )

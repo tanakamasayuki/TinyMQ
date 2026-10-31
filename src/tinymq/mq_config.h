@@ -46,6 +46,12 @@
 #define TINYMQ_MAX_PACKET 1024
 #endif
 
+// 5.0 enhanced authentication: longest Authentication Data an
+// authentication handler can answer with (client and broker)
+#ifndef TINYMQ_AUTH_DATA
+#define TINYMQ_AUTH_DATA 128
+#endif
+
 // ---- client
 
 // Bytes kept for unacknowledged QoS 1 / 2 messages (resent on reconnect)
@@ -152,6 +158,12 @@
 // Predefined topic ids
 #ifndef TINYMQ_SN_MAX_PREDEFINED
 #define TINYMQ_SN_MAX_PREDEFINED 16
+#endif
+
+// Longest Wireless Node Id of a client behind a forwarder (Forwarder
+// Encapsulation); longer ones are dropped
+#ifndef TINYMQ_SN_MAX_NODE_ID
+#define TINYMQ_SN_MAX_NODE_ID 8
 #endif
 
 // Bytes for registered topic names and wills being connected

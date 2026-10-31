@@ -26,6 +26,20 @@ struct ConnectInfo {
     Bytes props;  // 5.0 CONNECT properties (user properties, ...)
 };
 
+// One step of 5.0 enhanced authentication (CONNECT or AUTH carrying an
+// Authentication Method), for the enhanced authentication callback.
+struct AuthStep {
+    int conn;          // connection number, to keep state between steps
+    Bytes clientId;    // as in CONNECT (empty if the broker will assign one)
+    Bytes method;      // Authentication Method
+    Bytes data;        // Authentication Data from the client (may be empty)
+    bool reauth;       // re-authentication of a connected client
+    uint8_t step;      // 0 for CONNECT or the AUTH that starts re-authentication
+    uint8_t *reply;    // Authentication Data to send back: up to replyCap
+    size_t replyCap;   // (TINYMQ_AUTH_DATA) bytes; set replyLen
+    size_t replyLen;
+};
+
 // Where saveState() writes and loadState() reads (a file, flash, ...)
 class StateSink {
 public:
@@ -45,6 +59,11 @@ public:
     // Returns kSuccess to accept, or a reason code to refuse
     // (kBadUserNameOrPassword, kNotAuthorized, kClientIdentifierNotValid, ...).
     typedef uint8_t (*AuthHandler)(const ConnectInfo &info, void *context);
+    // 5.0 enhanced authentication. Returns kSuccess (authenticated),
+    // kContinueAuthentication (the reply goes to the client in AUTH, which
+    // answers with another step), or a reason code to refuse
+    // (kNotAuthorized, kBadAuthenticationMethod, ...).
+    typedef uint8_t (*EnhancedAuthHandler)(AuthStep &step, void *context);
     // Whether the client may publish to / subscribe with `topic`.
     typedef bool (*AclHandler)(Bytes clientId, Bytes username, Bytes topic, bool subscribe, void *context);
     // A message for the local client's subscriptions.
@@ -80,6 +99,10 @@ public:
     void setSysInterval(uint32_t seconds);
     void onAuthenticate(AuthHandler h, void *context = nullptr) { onAuth_ = h; onAuthCtx_ = context; }
     void onAuthorize(AclHandler h, void *context = nullptr) { onAcl_ = h; onAclCtx_ = context; }
+    // Without this handler a CONNECT with an Authentication Method is
+    // refused with kBadAuthenticationMethod. onAuthenticate() still runs
+    // after enhanced authentication succeeded.
+    void onEnhancedAuth(EnhancedAuthHandler h, void *context = nullptr) { onEnhancedAuth_ = h; onEnhancedAuthCtx_ = context; }
     void onClient(ClientHandler h, void *context = nullptr) { onClient_ = h; onClientCtx_ = context; }
 
     // ---- listener side
@@ -162,6 +185,14 @@ private:
         uint32_t openedAt;
         size_t rxLen;
         bool broken;  // a write failed; closed by reapBroken()
+#if TINYMQ_ENABLE_MQTT5
+        uint32_t authConnect;     // the CONNECT kept during enhanced authentication (pool), or kNull
+        uint32_t authConnectLen;
+        uint32_t authMethod;      // the Authentication Method of CONNECT (pool), or kNull
+        uint16_t authMethodLen;
+        uint8_t authStep;         // steps so far of the exchange in progress
+        bool reauth;              // re-authentication in progress
+#endif
 #if TINYMQ_BROKER_TOPIC_ALIAS_MAX > 0
         uint32_t alias[TINYMQ_BROKER_TOPIC_ALIAS_MAX];  // topics by alias - 1 (pool handles)
         uint16_t aliasLen[TINYMQ_BROKER_TOPIC_ALIAS_MAX];
@@ -216,7 +247,13 @@ private:
 
     // connections
     void handlePacket(int conn, const FixedHeader &h, const uint8_t *body);
-    void handleConnect(int conn, const uint8_t *body, size_t len);
+    // `authReply`: the Authentication Data for CONNACK, after enhanced authentication
+    void handleConnect(int conn, const uint8_t *body, size_t len, Bytes authReply = Bytes());
+    void handleAuth(int conn, const FixedHeader &h, const uint8_t *body, size_t len);
+    // Runs the enhanced authentication handler; the reply goes to authReply_
+    uint8_t authStep(int conn, Bytes clientId, Bytes method, Bytes data, bool reauth);
+    void sendAuth(int conn, uint8_t reason, Bytes data);
+    void clearAuth(Conn &c);
     void handlePublish(int conn, const FixedHeader &h, const uint8_t *body, size_t len);
     void handleAck(int conn, const FixedHeader &h, const uint8_t *body, size_t len);
     void handleSubscribe(int conn, const uint8_t *body, size_t len);
@@ -271,6 +308,10 @@ private:
     uint32_t retained_[TINYMQ_BROKER_MAX_RETAINED];
     uint8_t tx_[TINYMQ_MAX_PACKET];
     char topic_[TINYMQ_MAX_TOPIC_LEN + 1];
+#if TINYMQ_ENABLE_MQTT5
+    uint8_t authReply_[TINYMQ_AUTH_DATA];
+    size_t authReplyLen_ = 0;
+#endif
 
 #if TINYMQ_BROKER_POOL_BYTES > 0
     alignas(4) uint8_t arena_[TINYMQ_BROKER_POOL_BYTES];
@@ -298,6 +339,8 @@ private:
 
     AuthHandler onAuth_ = nullptr;
     void *onAuthCtx_ = nullptr;
+    EnhancedAuthHandler onEnhancedAuth_ = nullptr;
+    void *onEnhancedAuthCtx_ = nullptr;
     AclHandler onAcl_ = nullptr;
     void *onAclCtx_ = nullptr;
     MessageHandler onLocal_ = nullptr;

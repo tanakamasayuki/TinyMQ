@@ -11,6 +11,7 @@ everything the others left behind was freed.
 import re
 import socket
 import time
+import traceback
 
 import paho.mqtt.client as mqtt
 
@@ -596,6 +597,7 @@ def test_broker_interop(dut, record_property):
             results[name] = "PASS"
         except Exception as e:  # report every scenario, then fail at the end
             results[name] = f"FAIL {type(e).__name__}: {e}"
+            traceback.print_exc()
         print(f"SCENARIO {results[name].split()[0]} {name} {results[name][4:]}")
         record_property(f"scenario_{name}", results[name])
 

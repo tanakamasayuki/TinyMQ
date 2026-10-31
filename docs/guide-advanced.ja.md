@@ -53,6 +53,7 @@ Arduino 側のクラスは、`tinymq::` のエンジンと Arduino の `Client` 
 | `TINYMQ_BROKER_MAX_LISTENERS` | 4 | 受け口の数 |
 | `TINYMQ_BROKER_MAX_TAPS` | 2 | ブリッジの数 |
 | `TINYMQ_BROKER_TOPIC_ALIAS_MAX` | 8 | 5.0 のクライアントが使えるトピックエイリアス(0: 使わせない) |
+| `TINYMQ_AUTH_DATA` | 128 | 拡張認証のハンドラが返せる Authentication Data の長さ(クライアントとブローカー) |
 | `TINYMQ_ENABLE_MQTT5` | 1 | ブローカーで 5.0 を受け付ける |
 | `TINYMQ_ENABLE_SHARED_SUB` | 1 | 共有購読 |
 | `TINYMQ_ENABLE_QOS2_DELIVERY` | 1 | 購読者への QoS 2 の配送 |
@@ -60,6 +61,7 @@ Arduino 側のクラスは、`tinymq::` のエンジンと Arduino の `Client` 
 | `TINYMQ_SN_MAX_TOPICS` | 64 | トピック ID の登録の総数 |
 | `TINYMQ_SN_MAX_PREDEFINED` | 16 | 事前定義トピック |
 | `TINYMQ_SN_POOL_BYTES` | 4096 | 登録したトピック名の領域 |
+| `TINYMQ_SN_MAX_NODE_ID` | 8 | フォワーダーの後ろの Wireless Node Id の長さ |
 | `TINYMQ_SN_CLIENT_LEVEL` | 2 | MQTT-SN クライアントの段階(§7) |
 | `TINYMQ_SN_CLIENT_BUFFER` | 256 | MQTT-SN クライアントのデータグラムの最大長 |
 | `TINYMQ_SN_CLIENT_MAX_TOPICS` | 8 | MQTT-SN クライアントが覚えるトピック ID |
@@ -147,6 +149,7 @@ mqtt.subscribe("room/#", o, 7);              // 購読識別子 7
 - CONNACK でブローカーが伝えた Receive Maximum、Maximum QoS、Retain Available、Maximum Packet Size、Server Keep Alive に従います(超える publish は −1)。割り当てられた Client ID は `assignedClientId()`
 - `disconnect(tinymq::kDisconnectWithWill)` で、切断しても will を出させられます
 - こちらで見つけたプロトコル違反は、理由コード付きの DISCONNECT を送ってから閉じます。ブローカーからの DISCONNECT の理由は `onDisconnect` / `lastReason()`
+- 拡張認証(AUTH)と再認証: §9
 
 ### ブローカー
 
@@ -154,7 +157,7 @@ mqtt.subscribe("room/#", o, 7);              // 購読識別子 7
 - 購読識別子、No Local、Retain As Published、Retain Handling、共有購読(`$share/<group>/<filter>`。オンラインのメンバーへ順番に配り、retain は送らない)
 - クライアントからのトピックエイリアス(`TINYMQ_BROKER_TOPIC_ALIAS_MAX`。ブローカーからは使わない)
 - 理由コード: PUBACK の 0x10(購読者なし)/ 0x87(認可されない)/ 0x99(UTF-8 でないペイロード)、SUBACK の 0x8F / 0x87 / 0x97 / 0x9E、UNSUBACK の 0x11、プロトコル違反のときの DISCONNECT
-- 拡張認証(AUTH)は未対応です。Authentication Method を含む CONNECT は 0x8C で断ります
+- 拡張認証(AUTH)と再認証: §9
 
 ## 7. MQTT-SN
 
@@ -165,7 +168,19 @@ mqtt.subscribe("room/#", o, 7);              // 購読識別子 7
 - 事前定義トピック(`addPredefinedTopic()`)と 2 文字の短いトピック名は、登録なしで使えます。QoS −1(接続なしの PUBLISH)はこの 2 つだけで受け付けます
 - **スリープ**: クライアントが DISCONNECT に時間を付けると、その間のメッセージ(QoS 0 も)をブローカーのキューに預かり、起床の PINGREQ で配ってから PINGRESP を返します
 - **UDP の取りこぼし**: 確認のない配送は Tretry(既定 10 秒)ごとに DUP 付きで送り直し、Nretry(既定 3)回を超えたらクライアントを切断扱いにして will を出します(`setRetry()`)
-- 送信元アドレスで認証しません。**閉じたネットワークか、TinyWG のトンネルの中で**使ってください
+- **フォワーダー**: Forwarder Encapsulation で包まれたメッセージをほどきます。フォワーダーの後ろの Wireless Node Id ごとに別のクライアントで、返事はそのノード宛てに包んで返します(`TINYMQ_SN_MAX_NODE_ID`、既定 8 バイト)
+- `setSourceFilter()` で、コールバックが断った送信元のデータグラムを捨てます。アドレス、ポート、フォワーダーの後ろならノード ID が見えます:
+
+```cpp
+bool onSource(const tinymq::Endpoint &from, void *)
+{
+    return from.ip[0] == 192 && from.ip[1] == 168 && from.ip[2] == 1;  // 192.168.1.x だけ
+}
+
+sn.setSourceFilter(onSource);
+```
+
+- 送信元アドレスで認証はしません(フィルターは振り分けるだけです)。**閉じたネットワークか、TinyWG のトンネルの中で**使ってください
 
 ### クライアント(`TinyMQClientSn`)
 
@@ -224,6 +239,28 @@ broker.onAuthorize(onAcl);
 - `$SYS` で始まるトピックへの publish は、クライアントからは受け付けません(確認して捨てる)
 - MQTT-SN のクライアントにも同じ認可が効きます(Client ID で判断できます。ユーザ名はありません)
 
+### 拡張認証(5.0 の AUTH)
+
+CONNECT に Authentication Method を入れた 5.0 のクライアントは `onEnhancedAuth()` を通ります。チャレンジ・レスポンス(SCRAM など)やトークンに使えます。ハンドラは 1 往復ずつ呼ばれ、`kContinueAuthentication`(返事を AUTH でクライアントに送る)、`kSuccess`、拒否の理由コードのどれかを返します。接続中のクライアントからの再認証(AUTH 0x19)も同じハンドラで、失敗すると接続を切ります。
+
+```cpp
+uint8_t onEnhancedAuth(tinymq::AuthStep &st, void *)
+{
+    if (!st.method.equals("TOKEN"))
+        return tinymq::kBadAuthenticationMethod;
+    if (!st.data.equals("my-token"))
+        return tinymq::kNotAuthorized;
+    return tinymq::kSuccess;
+}
+
+broker.onEnhancedAuth(onEnhancedAuth);
+```
+
+- `st.step` は 1 回のやり取りの中の何往復目か(0 から)、`st.conn` は接続の番号です。往復の間で状態を持つ方式に使います。返事(`st.reply`、`TINYMQ_AUTH_DATA` バイトまで、既定 128)は AUTH で、最後の往復なら CONNACK で送ります
+- 拡張認証が通ったあとも `onAuthenticate()` は呼ばれます
+- `onEnhancedAuth()` がなければ、Authentication Method を含む CONNECT は 0x8C で断ります
+- クライアントでは、方式と最初のデータを `setConnectProperties()` で CONNECT に入れ、`onAuth()` で AUTH に答え、最後の CONNACK のデータも受け取ります。`reauthenticate(data)` で再認証を始めます
+
 ## 10. 永続化
 
 `saveState()` は、retain(期限の残り時間も)と、有効期限のあるセッション(購読、未配送の QoS 1 / 2)を書き出します。`loadState()` は、`begin()` のあと、受け口を登録する前に呼びます。
@@ -248,6 +285,6 @@ broker.onAuthorize(onAcl);
 ## 12. 制限
 
 - MQTT-SN のゲートウェイとクライアントは IPv4 のみ
-- MQTT 5.0 の拡張認証(AUTH)、ブローカー側の TLS、WebSocket、MQTT-SN 2.0 は対象外
+- ブローカー側の TLS、WebSocket、MQTT-SN 2.0 は対象外
 - ブリッジが預かるメッセージは RAM の中だけ(再起動で消える)
 - ブローカーはトピックエイリアスを自分からは使いません(受けるだけ)

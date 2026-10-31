@@ -25,6 +25,13 @@ public:
     typedef void (*PublishedHandler)(uint16_t packetId, uint8_t reason, void *context);
     // The stream was closed, by either side. `reason` says why (kSuccess for disconnect())
     typedef void (*ClosedHandler)(uint8_t reason, void *context);
+    // 5.0 enhanced authentication: the method (and the first data) go in
+    // CONNECT with setConnectProperties(). Called with kContinueAuthentication
+    // for each AUTH asking for an answer (write it to `reply`, at most `cap`
+    // = TINYMQ_AUTH_DATA bytes, and set `replyLen`), and with kSuccess at the
+    // end (CONNACK, or the AUTH that ends re-authentication; `reply` unused).
+    // Return false to give up: the connection ends.
+    typedef bool (*AuthHandler)(uint8_t reason, Bytes method, Bytes data, uint8_t *reply, size_t cap, size_t &replyLen, void *context);
 
     ClientEngine();
 
@@ -51,6 +58,7 @@ public:
     void onSuback(SubackHandler h, void *context = nullptr) { onSuback_ = h; onSubackCtx_ = context; }
     void onPublished(PublishedHandler h, void *context = nullptr) { onPublished_ = h; onPublishedCtx_ = context; }
     void onClosed(ClosedHandler h, void *context = nullptr) { onClosed_ = h; onClosedCtx_ = context; }
+    void onAuth(AuthHandler h, void *context = nullptr) { onAuth_ = h; onAuthCtx_ = context; }
 
     // ---- transport side
     // The stream is open: send CONNECT. False if it could not be sent.
@@ -77,6 +85,9 @@ public:
     int unsubscribe(const char *filter);
     // 5.0: `reason` kDisconnectWithWill asks the server to publish the will
     void disconnect(uint8_t reason = kSuccess);
+    // 5.0: re-authentication with the Authentication Method of CONNECT
+    // (AUTH 0x19 carrying `data`). False if not connected with one.
+    bool reauthenticate(Bytes data = Bytes());
 
     // ---- what the server said in CONNACK (5.0)
     const char *assignedClientId() const { return assigned_; }  // "" if none
@@ -111,6 +122,10 @@ private:
     void handleConnack(const uint8_t *body, size_t len);
     void handlePublish(const FixedHeader &h, const uint8_t *body, size_t len);
     void handleAck(const FixedHeader &h, const uint8_t *body, size_t len);
+    void handleAuth(const FixedHeader &h, const uint8_t *body, size_t len);
+    // The Authentication Method of CONNECT; false if none
+    bool authMethod(Bytes &method) const;
+    bool sendAuth(uint8_t reason, Bytes data);
     void handleOversizePublish(const FixedHeader &h, const uint8_t *prefix, size_t len);
     int findInflight(uint16_t id, uint8_t state) const;
     void removeInflight(int index);
@@ -136,6 +151,7 @@ private:
     uint32_t pingSentAt_ = 0;
     uint32_t connectSentAt_ = 0;
     bool pingOutstanding_ = false;
+    bool reauth_ = false;
     uint8_t lastReason_ = kSuccess;
     uint16_t lastPacketId_ = 0;
     uint32_t dropped_ = 0;
@@ -164,6 +180,8 @@ private:
     void *onPublishedCtx_ = nullptr;
     ClosedHandler onClosed_ = nullptr;
     void *onClosedCtx_ = nullptr;
+    AuthHandler onAuth_ = nullptr;
+    void *onAuthCtx_ = nullptr;
 };
 
 }  // namespace tinymq

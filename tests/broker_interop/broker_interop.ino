@@ -5,6 +5,9 @@
 //   SYS <s> ($SYS interval, 0: off)
 //   LISTEN <tcp port> [<MQTT-SN udp port>]   (boards also listen on lwIP's raw API, port 1885)   SNRETRY <ms> <count>   MAXQOS <0-2>   EXPIRY <s>   CTIMEOUT <ms>
 //   AUTH <0|1>  (user alice / password secret)          ACL <0|1>  (deny "secret/...")
+//   SNFILTER <0|1>  (the gateway drops nodes behind a forwarder whose id starts with 0xBA)
+//   XAUTH <0|1>  (5.0 enhanced authentication: TEST-CHALLENGE "hello" -> "nonce" ->
+//                 "nonce-ok" -> "welcome"; TEST-TOKEN "token" -> "ok")
 //   LSUB <qos> <filter>   LUNSUB <filter>   LPUB <qos> <retain> <topic> <payload>
 //   REBOOT (save the state, forget everything, load it)   STATS
 // Settings commands answer OK <command>. Events printed:
@@ -91,6 +94,38 @@ static uint8_t onAuth(const tinymq::ConnectInfo &info, void *)
     return tinymq::kSuccess;
 }
 
+static void reply(tinymq::AuthStep &st, const char *data)
+{
+    st.replyLen = strlen(data);
+    memcpy(st.reply, data, st.replyLen);
+}
+
+static uint8_t onEnhancedAuth(tinymq::AuthStep &st, void *)
+{
+    if (st.method.equals("TEST-TOKEN")) {
+        if (!st.data.equals("token"))
+            return tinymq::kNotAuthorized;
+        reply(st, "ok");
+        return tinymq::kSuccess;
+    }
+    if (!st.method.equals("TEST-CHALLENGE"))
+        return tinymq::kBadAuthenticationMethod;
+    if (st.step == 0 && st.data.equals("hello")) {
+        reply(st, "nonce");
+        return tinymq::kContinueAuthentication;
+    }
+    if (st.step == 1 && st.data.equals("nonce-ok")) {
+        reply(st, "welcome");
+        return tinymq::kSuccess;
+    }
+    return tinymq::kNotAuthorized;
+}
+
+static bool onSnSource(const tinymq::Endpoint &from, void *)
+{
+    return !(from.nodeLen && from.node[0] == 0xBA);
+}
+
 static bool onAcl(tinymq::Bytes, tinymq::Bytes, tinymq::Bytes topic, bool, void *)
 {
     return !(topic.len >= 7 && memcmp(topic.data, "secret/", 7) == 0);
@@ -149,6 +184,10 @@ static void command(char *line)
         broker.setSessionExpiry((uint32_t)atol(nextWord(&s)));
     } else if (!strcmp(cmd, "AUTH")) {
         broker.onAuthenticate(atoi(nextWord(&s)) ? onAuth : nullptr);
+    } else if (!strcmp(cmd, "SNFILTER")) {
+        sn.setSourceFilter(atoi(nextWord(&s)) ? onSnSource : nullptr);
+    } else if (!strcmp(cmd, "XAUTH")) {
+        broker.onEnhancedAuth(atoi(nextWord(&s)) ? onEnhancedAuth : nullptr);
     } else if (!strcmp(cmd, "ACL")) {
         broker.onAuthorize(atoi(nextWord(&s)) ? onAcl : nullptr);
     } else if (!strcmp(cmd, "LSUB")) {
@@ -197,7 +236,7 @@ static void command(char *line)
         Serial.println(cmd);
         return;
     }
-    if (!strcmp(cmd, "MAXQOS") || !strcmp(cmd, "SYS") || !strcmp(cmd, "SNRETRY") || !strcmp(cmd, "CTIMEOUT") || !strcmp(cmd, "EXPIRY") || !strcmp(cmd, "AUTH") || !strcmp(cmd, "ACL")) {
+    if (!strcmp(cmd, "MAXQOS") || !strcmp(cmd, "SYS") || !strcmp(cmd, "SNRETRY") || !strcmp(cmd, "CTIMEOUT") || !strcmp(cmd, "EXPIRY") || !strcmp(cmd, "AUTH") || !strcmp(cmd, "XAUTH") || !strcmp(cmd, "SNFILTER") || !strcmp(cmd, "ACL")) {
         Serial.print("OK ");
         Serial.println(cmd);
     }
