@@ -42,7 +42,7 @@ SPEC §7 の順に進める。
   - [ ] CH32V307(Ethernet。小さい設定のブローカーと lwIP の受け口でビルドは通る: Flash 59 KB / RAM 47 KB、うち lwIP 約 37 KB、Network ライブラリ)。ブローカーの軽い構成と MQTT-SN クライアント。ほかの機材と同じく pytest の機器ロックで使う
   - [ ] Pico W(つながっていない)
   - [x] ブローカーの遅延と速さ(`bench_broker`、ESP32-S3。SPEC §5.2)。途中で `TinyMQLwipListener` の 3 つの問題(遅延 ACK、送信キューのセグメント数、セグメントのまとめ)を直した
-  - [ ] ESP32(D0WDQ6)での計測。ほかのスイートが使っていて書き込みに失敗した。組の相手(1-1)のロックも取ってやり直す
+  - [ ] ESP32(D0WDQ6)での計測。ほかのスイートが使っていて書き込みに失敗した。やり直す
   - [ ] 接続数ごとの RAM の計測、TinyWG との組み合わせ
 - [ ] Phase 6: MQTT 5.0
   - [x] プロパティのコーデック
@@ -75,11 +75,11 @@ SPEC §7 の順に進める。
 
 - **実機の試験**: `tests/.env` は TinyWG と同じボード(`/run/board-identify/by-id/...`)と Wi-Fi を使う。ボードはほかのスイートと共有で、シリアルはプラグインが排他する
 - **常駐ベンチでの名前と組**(oep-bench の台帳、2026-10-30 に [oep] から): `esp32` = 1-2 `esp32-irrx`(`esp32-d0wdq6-ec62608443a8`)、`esp32s3` = 1-3 `s3-irrx`(`esp32-s3-d0cf1359101c`)、`ch32v307` = 3-2 `v307`(`ch32v307vct6-7bbed00a9c1c5054`、ch32rv からは `wchlink://38EF8F06BDC2`)
-  - 1-2 は 1-1 と IR の組、1-3 は 1-4 と IR と GPIO19/20 の直結の組。組の相手の試験の firmware が IR や GPIO19/20 を動かすことがあるので、**組の相手の機器ロックも取る**規則(pytest では peer として宣言)。TinyMQ は相手に書き込まないので peer にはせず、`tests/conftest.py` が `.env` の `TEST_PARTNER_PORT_<PROFILE>` の機器ロックを、ビルドの後から各モジュールの終わりまで取る(プラグインと同じロックファイル)
+  - 1-2 は 1-1 と IR の組、1-3 は 1-4 と IR と GPIO19/20 の直結の組。ロックは試験が使う機材の分だけ取る(2026-10-31、oep-bench bbfc02e)。組の相手も使う試験では相手を pytest の peer として宣言し、プラグインにロックを取らせる。TinyMQ の試験は相手を使わないので、相手のロックは取らない
   - 排他は pytest の機器ロックが基本。`bench.lock` は OEP プロジェクトの道具の中だけで使うもので、TinyMQ は取らない(取ると OEP の道具がエラーになる)。uhubctl にロックの決まりはない(2026-10-31 に [oep] から、oep-bench ad9bc77)
   - 2026-10-28 の 1-2 への書き込み失敗(`Unable to verify flash chip connection`)と 1-3 の POWERON リセットは、組の相手のロックを取らずに EspUsbDevice-v3 / ESP32IRPulseKit と同時に動かしたためと考えられる(同じ機材への書き込みが重なるとこの失敗になる)
 
-- **ESP32-P4 の有線 LAN**: 2-3 `p4-eth`(`esp32-p4-80f1b2d0b261`、v1.3、RJ45、シリアルは CH340)。組の相手は USB HS で直結した 2-4 `p4x-hs`(`esp32-series-80f1b2d71d86`)。試験の `board_net.h` は P4 では `ETH.begin()`(variant の既定: TLK110、アドレス 1、MDC 31 / MDIO 52、外部クロック)と DHCP。2-3 / 2-4 は EspUsbDevice-v3 などもよく使うので、ロックの待ちが長くなることがある(`--device-lock-timeout` を延ばす)
+- **ESP32-P4 の有線 LAN**: 2-3 `p4-eth`(`esp32-p4-80f1b2d0b261`、v1.3、RJ45、シリアルは CH340)。USB HS で 2-4 と組だが、TinyMQ は 2-4 を使わないのでロックは取らない。試験の `board_net.h` は P4 では `ETH.begin()`(variant の既定: TLK110、アドレス 1、MDC 31 / MDIO 52、外部クロック)と DHCP。2-3 / 2-4 は EspUsbDevice-v3 などもよく使うので、ロックの待ちが長くなることがある(`--device-lock-timeout` を延ばす)
 
 - **mosquitto**: この PC には入っていない(sudo にパスワードが要る)。`tests/tools/fetch_mosquitto.sh` で `tests/.tools/mosquitto` に展開して使っている(git 管理外)
 

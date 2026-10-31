@@ -56,6 +56,4 @@ uv run --env-file .env pytest --profiles=all -rs     # host and every connected 
 
 The PC and the board must be on the same network and able to reach each other (do not block the mosquitto ports in the PC's firewall).
 
-On a shared bench, if a board is wired to another device, write that device's port in `TEST_PARTNER_PORT_<PROFILE>` in `.env` and its device lock is also held for each module (`conftest.py`; nothing is uploaded to it), because its firmware may drive the shared lines.
-
 `output/` is cleared before each test by `arduino_reset_dirs` in `pyproject.toml`.

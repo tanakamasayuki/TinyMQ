@@ -56,6 +56,4 @@ uv run --env-file .env pytest --profiles=all -rs     # host とつないだす�
 
 PC とボードが同じネットワークにいて、互いに届く必要があります(PC のファイアウォールで mosquitto のポートを塞がないこと)。
 
-ベンチでほかの機材と配線で組になっているボードは、`.env` の `TEST_PARTNER_PORT_<PROFILE>` に相手のポートを書くと、相手の機器ロックもモジュールの間取ります(`conftest.py`。相手には何も書き込みません)。相手のファームウェアが共通の線を動かすことがあるためです。
-
 各テストの前に `output/` を消すのは、`pyproject.toml` の `arduino_reset_dirs` で行います。
