@@ -215,6 +215,19 @@ The planned `TINYMQ_ENABLE_SN` / `TINYMQ_ENABLE_BRIDGE` / `TINYMQ_ENABLE_PERSIST
 - Two problems of `TinyMQLwipListener` were fixed while measuring: writes ignored the segment limit of the send queue (`TCP_SND_QUEUELEN`) and broke connections, and `tcp_output()` after every write sent each small packet in its own segment (fixing the latter took one-to-one from 244 to 2967 msg/s).
 - ESP32 (D0WDQ6): other suites were using the board at the time and uploads failed; no values after the fixes.
 
+ESP32-P4 (bench 2-3, wired Ethernet at 100 Mbps, 2026-10-31):
+
+| | `TinyMQLwipListener` | `TinyMQTcpListener<WiFiServer>` |
+|---|---|---|
+| Round trip QoS 0 (median / p95) | 1.37 / 2.24 ms | 207 / 311 ms (delayed ACK) |
+| Round trip QoS 1 (median / p95) | 0.83 / 1.69 ms | 1.60 / 2.92 ms |
+| One-to-one QoS 0 (100 bytes) | 4379 msg/s (35% delivered) | 2338 msg/s (100%) |
+| One-to-one QoS 1 | 555 msg/s | 546 msg/s |
+| One-to-four QoS 0 | 2442 deliveries/s (100%) | 2286 deliveries/s (100%) |
+
+- arduino-esp32 for the P4 is built without lwIP's core lock (`CONFIG_LWIP_TCPIP_CORE_LOCKING`). `TinyMQLwipListener` then hands its lwIP calls to lwIP's thread with `tcpip_api_call()` (a thread switch each time). Before this was noticed, it used lwIP without a lock and connections broke.
+- One-to-one QoS 0 drops what overflows the subscriber's queue, because the PC sends faster (the same reason as on the S3).
+
 ## 6. Testing
 
 The same structure as TinyWG (pytest-embedded + Arduino CLI, the `TEST done N/M` protocol, cores pinned by `sketch.yaml` profiles).

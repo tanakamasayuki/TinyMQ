@@ -215,6 +215,19 @@ CH32V307(Ethernet で 1 秒ごとに UDP を送るスケッチとの差、`TINYM
 - 計測の途中で、`TinyMQLwipListener` の 2 つの問題を直した: 送信キューのセグメント数(`TCP_SND_QUEUELEN`)を見ずに書いて接続が切れていたこと、書き込みのたびに `tcp_output()` を呼んで小さなパケットが別々のセグメントになっていたこと(後者で 1 対 1 は 244 → 2967 msg/s)
 - ESP32(D0WDQ6)は、同じ時間帯にほかのスイートがボードを使っていて書き込みに失敗し、直したあとの値は取れていない
 
+ESP32-P4(2-3、有線 LAN 100 Mbps、2026-10-31):
+
+| | `TinyMQLwipListener` | `TinyMQTcpListener<WiFiServer>` |
+|---|---|---|
+| 往復の遅延 QoS 0(中央値 / p95) | 1.37 / 2.24 ms | 207 / 311 ms(遅延 ACK) |
+| 往復の遅延 QoS 1(中央値 / p95) | 0.83 / 1.69 ms | 1.60 / 2.92 ms |
+| 1 対 1 の連続送信 QoS 0(100 バイト) | 4379 msg/s(届いた割合 35%) | 2338 msg/s(100%) |
+| 1 対 1 の連続送信 QoS 1 | 555 msg/s | 546 msg/s |
+| 1 対 4 の配送 QoS 0 | 2442 件/s(100%) | 2286 件/s(100%) |
+
+- P4 用の arduino-esp32 は lwIP のコアロック(`CONFIG_LWIP_TCPIP_CORE_LOCKING`)なしでビルドされている。`TinyMQLwipListener` はそのとき lwIP の呼び出しを `tcpip_api_call()` で lwIP のスレッドに渡す(1 回ごとにスレッドの切り替えが入る)。これに気づく前は、ロックなしで lwIP を触って接続が壊れていた
+- 1 対 1 の QoS 0 は、PC が送るほうが速く、購読者のキューが溢れた分を落としている(S3 と同じ理由)
+
 ## 6. テスト方針
 
 TinyWG と同じ構成(pytest-embedded + Arduino CLI、`TEST done N/M` プロトコル、`sketch.yaml` のプロファイルでコアを固定)を踏襲する。
