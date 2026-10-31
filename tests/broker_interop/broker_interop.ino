@@ -8,7 +8,7 @@
 //   LSUB <qos> <filter>   LUNSUB <filter>   LPUB <qos> <retain> <topic> <payload>
 //   REBOOT (save the state, forget everything, load it)   STATS
 // Settings commands answer OK <command>. Events printed:
-//   LISTENING <port>   CLIENT <id> <1|0>   LOCAL <qos> <retain> <topic> <payload>
+//   LISTENING <port>   LIMITS qos2in=<n>   CLIENT <id> <1|0>   LOCAL <qos> <retain> <topic> <payload>
 //   STATS clients=<n> sessions=<n> subs=<n> retained=<n> pool=<used>/<capacity> dropped=<n>
 
 #include <TinyMQ.h>
@@ -19,7 +19,11 @@ WiFiServer server;
 TinyMQTcpListener<WiFiServer> listener(server);
 WiFiUDP udp;
 TinyMQSnListener sn(udp);
-#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_REAL)
+#if defined(ARDUINO_ARCH_CH32RV)
+// CH32V: lwIP's raw API only. A NetworkClient keeps a TCP window of its own
+// per connection, which eight connections cannot have beside lwIP
+#define LWIP_ONLY 1
+#elif defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_REAL)
 // the same broker on lwIP's raw API too (board only; the host core has no lwIP)
 TinyMQLwipListener lwipListener(1885);
 #endif
@@ -111,18 +115,27 @@ static void command(char *line)
     if (!strcmp(cmd, "LISTEN")) {
         uint16_t port = (uint16_t)atoi(nextWord(&s));
         uint16_t snPort = (uint16_t)atoi(nextWord(&s));
+#ifdef LWIP_ONLY
+        TinyMQLwipListener *main = new TinyMQLwipListener(port);
+        main->begin();
+        broker.addListener(*main);
+#else
         server.begin(port);
+#endif
         if (snPort)
             udp.begin(snPort);
         Serial.print("LISTENING ");
         Serial.print(port);
-#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_REAL)
+#if defined(TINYMQ_HAS_LWIP) && defined(BOARD_NET_REAL) && !defined(LWIP_ONLY)
         if (lwipListener.begin()) {
             broker.addListener(lwipListener);
             Serial.print(" lwip=1885");
         }
 #endif
         Serial.println();
+        // what the build allows, for the scenarios that depend on it (TINYMQ_PRESET_SMALL)
+        Serial.print("LIMITS qos2in=");
+        Serial.println((unsigned)TINYMQ_BROKER_MAX_QOS2_IN);
     } else if (!strcmp(cmd, "SNRETRY")) {
         uint32_t ms = (uint32_t)atol(nextWord(&s));
         sn.setRetry(ms, (uint8_t)atoi(nextWord(&s)));
@@ -196,7 +209,9 @@ void setup()
     if (!networkReady())
         return;
     broker.begin();
+#ifndef LWIP_ONLY
     broker.addListener(listener);
+#endif
     broker.addListener(sn);
     sn.addPredefinedTopic(1, "pre/one");
     sn.addPredefinedTopic(2, "pre/two");

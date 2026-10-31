@@ -41,6 +41,8 @@ SPEC §7 の順に進める。
   - [ ] ESP32-S3 が試験中に 1 回だけ電源投入リセットでダウンロードモードに入った(`rst:0x1 (POWERON), boot:0x23`)。再実行では起きていない。USB の電源か、ほかのスイートとの取り合いかは未確認
   - [ ] CH32V307(Ethernet。小さい設定のブローカーと lwIP の受け口でビルドは通る: Flash 59 KB / RAM 47 KB、うち lwIP 約 37 KB、Network ライブラリ)。ブローカーの軽い構成と MQTT-SN クライアント。ほかの機材と同じく pytest の機器ロックで使う
     - CH32V の lwIP(2026-10-31、[core] に確認): NO_SYS=1 で、lwIP は `ch32rv_net_task()` の中だけで動く(`loop()` の後、`delay()` の中、Network の待つ処理)。割り込みは受信した frame を積むだけ。なので `TinyMQLwipListener` がロックなしで `loop()` から raw API を呼ぶのは正しい。スケッチ自身の割り込みからは呼ばないこと
+    - 2026-10-31: 未公開のコア(作業ツリー 00a3210d 以降、Flash / RAM を 192K / 128K にする `ramsplit`、そのときの大きい lwIP の設定、ループバック)と `TINYMQ_PRESET_SMALL` で、3-2 の Ethernet で `client_interop`(20)、`sn_client_interop`(8)、`broker_interop`(43)が通過。プロファイルは `ch32v307big`(`tests/tools/setup_ch32_dev_core.sh`)。コアが公開されたら、版を固定したプロファイルに置き換える
+    - 試験のプラグインにプロファイルごとの define がないので、プリセットはスケッチブックの `platform.local.txt` で渡している
     - スケッチは `ETH.begin()` を呼ぶこと(呼ばないと Network.a の `sys_now` が `millis` を見つけられずリンクに失敗する)。既定の設定では RAM が溢れるので、4 接続・プール 4 KB で Flash 60 KB / RAM 51 KB
   - [ ] Pico W(つながっていない)
   - [x] ESP32-P4(2-3、有線 LAN): 単体テスト 6 本と 5 つの相互接続試験(`broker_interop` 72 シナリオ、うち lwIP の受け口 29)、ブリッジ、計測(SPEC §5.2)が通過(2026-10-31)。途中で直したこと: P4 のコアは lwIP のコアロックなしなので、`TinyMQLwipListener` の lwIP の呼び出しを lwIP のスレッドで行うようにした。CH340 が起動時に拾うゴミの 1 バイトで最初のコマンドが壊れるので、試験は READY のあとに空行を送る

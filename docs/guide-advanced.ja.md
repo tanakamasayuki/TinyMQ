@@ -68,6 +68,8 @@ Arduino 側のクラスは、`tinymq::` のエンジンと Arduino の `Client` 
 | `TINYMQ_BRIDGE_QUEUE_BYTES` | 2048 | 上流が落ちている間に預かる QoS 1 / 2 の領域(0: 預からない) |
 | `TINYMQ_BRIDGE_MAX_QUEUED` | 16 | その件数 |
 
+**プリセット**: `-DTINYMQ_PRESET_SMALL` を付けると、ネットワークのスタックで RAM が残りにくいボード(Ethernet の CH32V307 など)向けに、既定値をまとめて小さくします。接続数と最大のパケットは変えず、セッション 8、購読 32、retain 16、配送待ち 16、受信中の QoS 2 を 8、プール 8192、MQTT-SN のクライアント 4、登録 32、その領域 2048 にします。個々の値はこれまでどおり `-D` で上書きできます。CH32V307(Flash / RAM 192K / 128K)では、ブローカーが 37.7 KB から 21.8 KB に、ゲートウェイが 10.2 KB から 7.3 KB になります。
+
 Arduino IDE は `-D` を渡す場所がありません。arduino-cli なら `--build-property "compiler.cpp.extra_flags=-DTINYMQ_BROKER_MAX_CLIENTS=4"`、PlatformIO なら `build_flags` で渡します。ライブラリ全体に効くので、スケッチの中の `#define` では変わりません。
 
 ### 見積もり

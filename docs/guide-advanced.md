@@ -68,6 +68,8 @@ With `TINYMQ_BROKER_POOL_BYTES` set to 0, the pool is allocated once by `begin(b
 | `TINYMQ_BRIDGE_QUEUE_BYTES` | 2048 | Room for QoS 1 / 2 messages kept while upstream is down (0: none kept) |
 | `TINYMQ_BRIDGE_MAX_QUEUED` | 16 | How many |
 
+**Preset**: `-DTINYMQ_PRESET_SMALL` makes the defaults smaller together, for boards whose network stack leaves little RAM (such as the CH32V307 with Ethernet). The number of connections and the largest packet stay; sessions become 8, subscriptions 32, retained messages 16, queued messages 16, incoming QoS 2 8, the pool 8192, MQTT-SN clients 4, registrations 32 and their area 2048. Each value can still be overridden with `-D`. On the CH32V307 (Flash / RAM 192K / 128K) the broker goes from 37.7 KB to 21.8 KB and the gateway from 10.2 KB to 7.3 KB.
+
 The Arduino IDE has no place to pass `-D`. With arduino-cli, use `--build-property "compiler.cpp.extra_flags=-DTINYMQ_BROKER_MAX_CLIENTS=4"`; with PlatformIO, use `build_flags`. The settings apply to the whole library, so a `#define` in the sketch does not change them.
 
 ### Estimates

@@ -1,6 +1,8 @@
 # Changelog / 変更履歴
 
 ## Unreleased
+- (EN) TINYMQ_PRESET_SMALL: smaller defaults for the broker and the MQTT-SN gateway on boards with little RAM beside the network stack.
+- (JA) TINYMQ_PRESET_SMALL: ネットワークのスタックの横で RAM が少ないボード向けに、ブローカーと MQTT-SN ゲートウェイの既定値を小さくする。
 - (EN) TinyMQLwipListener works on cores built without lwIP's core lock (ESP32-P4): its lwIP calls run in lwIP's thread, and the broker runs outside the lock everywhere.
 - (JA) TinyMQLwipListener が lwIP のコアロックなしでビルドされたコア(ESP32-P4)で動く: lwIP の呼び出しは lwIP のスレッドで行い、ブローカーはどの環境でもロックの外で動く。
 - (EN) TinyMQLwipListener: acknowledges at once (no delayed-ACK stalls with Nagle senders), respects the send queue's segment limit, and batches tcp_output() per update.

@@ -41,7 +41,7 @@ def scenario_v5_connack(d, port):
     r = raw(port)
     present, props = r.connect("v5c")
     assert not present
-    assert mp.prop(props, mp_RECEIVE_MAX) == 16
+    assert mp.prop(props, mp_RECEIVE_MAX) == d.qos2_in
     assert mp.prop(props, mp_MAX_PACKET) == 1024
     assert mp.prop(props, mp_ALIAS_MAX) == 8
     assert mp.prop(props, mp_ASSIGNED) is None
@@ -345,9 +345,9 @@ def scenario_v5_flow_control(d, port):
         # more QoS 2 publishes than the broker's Receive Maximum
         r = raw(port)
         r.connect("flood")
-        for i in range(1, 18):
+        for i in range(1, d.qos2_in + 2):
             r.send(mp.publish5("fc/q2", "x", qos=2, packet_id=i))
-        for _ in range(16):
+        for _ in range(d.qos2_in):
             first, _ = r.recv_packet()
             assert first == 0x50
         r.expect_disconnect(0x93)

@@ -18,8 +18,14 @@
 
 #include "board_net.h"
 
+#if defined(ARDUINO_ARCH_CH32RV)
+// CH32V: lwIP's raw API. A NetworkClient keeps a TCP window of its own per
+// connection, which there is no room for beside lwIP
+#define LWIP_ONLY 1
+#else
 WiFiServer server;
 TinyMQTcpListener<WiFiServer> listener(server);
+#endif
 WiFiUDP gatewayUdp;
 TinyMQSnListener gateway(gatewayUdp);
 TinyMQBroker broker;
@@ -85,7 +91,13 @@ static void command(char *line)
     if (!strcmp(cmd, "BROKER")) {
         uint16_t tcp = (uint16_t)atoi(nextWord(&s));
         uint16_t udp = (uint16_t)atoi(nextWord(&s));
+#ifdef LWIP_ONLY
+        TinyMQLwipListener *tcpListener = new TinyMQLwipListener(tcp);
+        tcpListener->begin();
+        broker.addListener(*tcpListener);
+#else
         server.begin(tcp);
+#endif
         gatewayUdp.begin(udp);
         g_brokerOn = true;
         Serial.println("BROKER ready");
@@ -185,7 +197,9 @@ void setup()
     if (!networkReady())
         return;
     broker.begin();
+#ifndef LWIP_ONLY
     broker.addListener(listener);
+#endif
     broker.addListener(gateway);
     gateway.addPredefinedTopic(1, "pre/one");
     gateway.addPredefinedTopic(2, "pre/two");

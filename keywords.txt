@@ -47,3 +47,4 @@ subscribePredefined	KEYWORD2
 checkMessages	KEYWORD2
 searchGateway	KEYWORD2
 addTopic	KEYWORD2
+TINYMQ_PRESET_SMALL	LITERAL1

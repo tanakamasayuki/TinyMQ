@@ -195,6 +195,7 @@ Two levels: build-time macros (override with `-D`, in `src/tinymq/mq_config.h`) 
 
 - Table sizes: connections, sessions, subscriptions, retained messages, queued and in-flight messages per session, incoming QoS 2, topic aliases, MQTT-SN clients and registrations, bridge topic maps
 - Buffers: `TINYMQ_MAX_PACKET`, `TINYMQ_BROKER_RX_BUFFER`, the pool (`TINYMQ_BROKER_POOL_BYTES`; 0 allocates it once in `begin()`)
+- Preset: `TINYMQ_PRESET_SMALL` (the same connections and largest packet, smaller tables and pool; values in the advanced guide §2)
 - Features: `TINYMQ_ENABLE_MQTT5`, `TINYMQ_ENABLE_SHARED_SUB`, `TINYMQ_ENABLE_QOS2_DELIVERY`, `TINYMQ_SN_CLIENT_LEVEL`
 
 The planned `TINYMQ_ENABLE_SN` / `TINYMQ_ENABLE_BRIDGE` / `TINYMQ_ENABLE_PERSISTENT_SESSION` and the like were not added: MQTT-SN, bridges and persistence are dropped by the linker when unused. `$SYS` is not implemented yet.

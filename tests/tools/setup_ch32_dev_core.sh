@@ -7,6 +7,10 @@
 #   tests/tools/setup_ch32_dev_core.sh
 #   ARDUINO_DIRECTORIES_USER=$PWD/.tools/ch32-dev uv run --env-file .env pytest ... --profile ch32v307big
 #
+# The board has little RAM left beside lwIP, so everything built from this
+# sketchbook gets -DTINYMQ_PRESET_SMALL (the plugin has no per-profile
+# defines; the core leaves compiler.<lang>.extra_flags to the user).
+#
 # The core sets the option bytes to the image's split at boot (one extra
 # reset) and back to 256K / 64K for an image built with the default split.
 set -eu
@@ -28,5 +32,7 @@ compiler.path=$core/.tools/xpack-riscv-none-elf-gcc/$gcc/bin/
 runtime.tools.ch32rv.path=$core/.tools/ch32rv/$tool
 tools.ch32rv.path=$core/.tools/ch32rv/$tool
 tools.ch32rv.cmd=ch32rv
+compiler.c.extra_flags=-DTINYMQ_PRESET_SMALL
+compiler.cpp.extra_flags=-DTINYMQ_PRESET_SMALL
 EOF
 echo "core $(git -C "$core" rev-parse --short HEAD) linked into $dest"

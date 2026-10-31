@@ -48,7 +48,7 @@ uv run --env-file .env pytest broker_interop client_interop sn_client_interop --
 uv run --env-file .env pytest --profiles=all -rs     # host とつないだすべてのボード
 ```
 
-`client_interop` / `broker_interop` / `sn_client_interop` は host とネットワークのあるボードで同じシナリオを流します。esp32 / esp32s3 / picow は Wi-Fi、esp32p4 と ch32v307big は有線 LAN(DHCP)でつなぎます(`board_net.h`)。ch32v307big は CH32V307 の Flash / RAM を 192K / 128K にした設定で、まだ公開されていないコアを使います。`tools/setup_ch32_dev_core.sh` を実行し、pytest を `ARDUINO_DIRECTORIES_USER=$PWD/.tools/ch32-dev` を付けて動かします。コアの Network ライブラリは V307 では TCP の接続が 6 本までで、127.0.0.1 へは届かないため、`client_interop` 以外はまだ通りません。スケッチはネットワークにつないで `READY <IP>` を出し、テストはそれを見て相手を決めます。
+`client_interop` / `broker_interop` / `sn_client_interop` は host とネットワークのあるボードで同じシナリオを流します。esp32 / esp32s3 / picow は Wi-Fi、esp32p4 と ch32v307big は有線 LAN(DHCP)でつなぎます(`board_net.h`)。ch32v307big は CH32V307 の Flash / RAM を 192K / 128K にした設定で、まだ公開されていないコアを使います。`tools/setup_ch32_dev_core.sh` を実行し、pytest を `ARDUINO_DIRECTORIES_USER=$PWD/.tools/ch32-dev` を付けて動かします。このスケッチブックでビルドすると `TINYMQ_PRESET_SMALL` が付き、ブローカーは lwIP の受け口だけで受けます(`NetworkClient` は接続ごとに TCP の窓の分のバッファを持ち、8 本分は入らないため)。`client_interop`、`sn_client_interop`、`broker_interop` が通ります(コア 00a3210d 以降。それより前は lwIP が小さい設定で、127.0.0.1 へも届かない)。スケッチはネットワークにつないで `READY <IP>` を出し、テストはそれを見て相手を決めます。
 
 - `broker_interop`: ボードがブローカー(TCP 1883、MQTT-SN 1884)。PC の paho-mqtt / 生ソケット / MQTT-SN ピアがボードの IP へつなぐ
 - `client_interop`: PC の mosquitto と偽ブローカーが全アドレスで待ち、ボードが PC のアドレス(ボードへの経路から求める)へつなぐ

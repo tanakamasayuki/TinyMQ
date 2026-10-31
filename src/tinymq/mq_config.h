@@ -1,6 +1,41 @@
 // Build-time settings. Override any of these with -D.
 #pragma once
 
+// Presets: -DTINYMQ_PRESET_SMALL picks smaller defaults for the broker and
+// the MQTT-SN gateway, for boards whose network stack leaves little RAM
+// (CH32V307 with Ethernet). The number of connections and the largest packet
+// stay the same; fewer sessions, subscriptions and retained messages, and
+// shorter queues. Any setting below can still be given with -D.
+#ifdef TINYMQ_PRESET_SMALL
+#ifndef TINYMQ_BROKER_MAX_SESSIONS
+#define TINYMQ_BROKER_MAX_SESSIONS 8
+#endif
+#ifndef TINYMQ_BROKER_MAX_SUBSCRIPTIONS
+#define TINYMQ_BROKER_MAX_SUBSCRIPTIONS 32
+#endif
+#ifndef TINYMQ_BROKER_MAX_RETAINED
+#define TINYMQ_BROKER_MAX_RETAINED 16
+#endif
+#ifndef TINYMQ_BROKER_MAX_QUEUED
+#define TINYMQ_BROKER_MAX_QUEUED 16
+#endif
+#ifndef TINYMQ_BROKER_MAX_QOS2_IN
+#define TINYMQ_BROKER_MAX_QOS2_IN 8
+#endif
+#ifndef TINYMQ_BROKER_POOL_BYTES
+#define TINYMQ_BROKER_POOL_BYTES 8192
+#endif
+#ifndef TINYMQ_SN_MAX_CLIENTS
+#define TINYMQ_SN_MAX_CLIENTS 4
+#endif
+#ifndef TINYMQ_SN_MAX_TOPICS
+#define TINYMQ_SN_MAX_TOPICS 32
+#endif
+#ifndef TINYMQ_SN_POOL_BYTES
+#define TINYMQ_SN_POOL_BYTES 2048
+#endif
+#endif
+
 // Longest topic name accepted or sent, in bytes
 #ifndef TINYMQ_MAX_TOPIC_LEN
 #define TINYMQ_MAX_TOPIC_LEN 128

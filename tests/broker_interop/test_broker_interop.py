@@ -587,6 +587,7 @@ def test_broker_interop(dut, record_property):
         target.HOST = ip
     d.send(f"LISTEN {port} {sn_port}")
     lwip = d.expect(rf"^LISTENING {port}( lwip=(\d+))?").group(2)
+    d.qos2_in = int(d.expect(r"^LIMITS qos2in=(\d+)").group(1))
     results = {}
 
     def run(name, fn):

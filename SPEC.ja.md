@@ -195,6 +195,7 @@ CH32V307(Ethernet で 1 秒ごとに UDP を送るスケッチとの差、`TINYM
 
 - 表の大きさ: 接続数、セッション数、購読数、retain の数、セッションごとのキューと送信中の数、受信中の QoS 2、トピックエイリアス、MQTT-SN のクライアント数と登録数、ブリッジの対応表
 - バッファ: `TINYMQ_MAX_PACKET`、`TINYMQ_BROKER_RX_BUFFER`、プール(`TINYMQ_BROKER_POOL_BYTES`、0 なら `begin()` で 1 回確保)
+- プリセット: `TINYMQ_PRESET_SMALL`(接続数と最大のパケットはそのままで、表とプールを小さくする。値は上級者ガイド §2)
 - 機能: `TINYMQ_ENABLE_MQTT5`、`TINYMQ_ENABLE_SHARED_SUB`、`TINYMQ_ENABLE_QOS2_DELIVERY`、`TINYMQ_SN_CLIENT_LEVEL`
 
 当初案にあった `TINYMQ_ENABLE_SN` / `TINYMQ_ENABLE_BRIDGE` / `TINYMQ_ENABLE_PERSISTENT_SESSION` などは設けていない。MQTT-SN、ブリッジ、永続化は、使わなければリンカが落とす。`$SYS` は未実装。
