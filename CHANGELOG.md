@@ -1,6 +1,8 @@
 # Changelog / 変更履歴
 
 ## Unreleased
+- (EN) TinyMQLwipListener works on cores built without lwIP's core lock (ESP32-P4): its lwIP calls run in lwIP's thread, and the broker runs outside the lock everywhere.
+- (JA) TinyMQLwipListener が lwIP のコアロックなしでビルドされたコア(ESP32-P4)で動く: lwIP の呼び出しは lwIP のスレッドで行い、ブローカーはどの環境でもロックの外で動く。
 - (EN) TinyMQLwipListener: acknowledges at once (no delayed-ACK stalls with Nagle senders), respects the send queue's segment limit, and batches tcp_output() per update.
 - (JA) TinyMQLwipListener: すぐ ACK を返す(Nagle の送り手で遅延 ACK を待たない)、送信キューのセグメント数の上限を守る、tcp_output() を update ごとにまとめる。
 - (EN) TinyMQBridge keeps QoS 1 / 2 messages for upstream while it is down and sends them in order once it is back.
